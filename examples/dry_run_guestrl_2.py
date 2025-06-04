@@ -1,11 +1,9 @@
-# Dry-run script for GuestRL environment
-# Save this as, e.g., `dry_run_guestrl.py` and run with `python dry_run_guestrl.py`
 import sys
 import os
 project_root = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
 sys.path.insert(0, project_root)
 
-from env.env_gym import GuestEnv
+from guest_env.env_gym import GuestEnv
 import numpy as np
 
 def main():
@@ -21,19 +19,26 @@ def main():
     print(info)
     print()
     
-    # Take a few random steps to see how the environment evolves
+    # Since action_space.sample() may not be implemented, pick actions manually
+    # ACTIONS = {0: 'wait', 1: 'stop', 2: 'stare_at(0)', 3: 'stare_at(1)', 4: 'stare_at(2)',
+    #            5: 'encourage(0)', 6: 'encourage(1)', 7: 'encourage(2)'}
     num_steps = 10
     for step in range(num_steps):
-        # Sample a random action from the action space
-        action = env.action_space.sample()
+        # Rotate through each action for demonstration
+        action = step % env.action_space.n
         
         # Apply the action
-        obs, reward, terminated, truncated, info = env.step(action)
-        done = terminated or truncated
+        result = env.step(action)
+        # Gymnasium v0.27+ returns (obs, reward, terminated, truncated, info)
+        if len(result) == 5:
+            obs, reward, terminated, truncated, info = result
+            done = terminated or truncated
+        else:
+            obs, reward, done, info = result
         
         # Print step details
         print(f"--- Step {step+1} ---")
-        print("Action:", action)
+        print("Action index:", action)
         print("Observation:", obs)
         print("Reward:", reward)
         print("Done:", done)

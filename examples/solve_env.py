@@ -3,36 +3,39 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Ensure env_gym.py is importable
+# Import the environment
 sys.path.insert(0, os.path.abspath(os.getcwd()))
-from env.env_gym import GuestEnv
+from guest_env.env_gym import GuestEnv
 
-def safe_reset(env):
+def safe_reset(env, seed=None, options=None):
     """
-    Try calling env.reset(); if it fails due to super().reset missing,
-    manually initialize important fields and return obs, info.
+    Reset fallback, replicating GuestEnv.reset without calling super().reset.
     """
     try:
-        return env.reset()
+        return env.reset(seed=seed, options=options)
     except AttributeError:
-        # Manual fallback initialization
-        # Based on env_gym.py reset implementation
-        if hasattr(env, 'seed') and env.seed is not None:
-            env.rng = np.random.default_rng(env.seed)
-        # energy initialization
-        if getattr(env, 'energy_imbalance', 0) > 0:
-            base = 0.5
+        if seed is not None:
+            env.seed = seed
+            env.rng = np.random.default_rng(seed)
+        # Initialize energies
+        if env.energy_imbalance > 0:
+            base_energy = 0.5
             env.energy = np.array([
-                base * (1 - env.energy_imbalance),
-                base,
-                base * (1 + env.energy_imbalance)
+                base_energy * (1 - env.energy_imbalance),
+                base_energy,
+                base_energy * (1 + env.energy_imbalance)
             ])
         else:
             env.energy = env.rng.uniform(0.4, 0.6, size=3)
+        # Reset internal state
+        env.speaking_time = np.zeros(3)
+        env.phonemes = np.zeros(3, dtype=int)
+        env.current_speaker = -1
         env.step_counter = 0
+        env.action_stats[:] = 0
         env.gini_history = []
         env.phoneme_history = []
-        # Reuse private method to get obs
+        # Return initial obs and info
         obs = env._get_obs()
         info = dict(
             num_of_step_env=env.step_counter,
@@ -49,23 +52,21 @@ def run_and_collect_phonemes(env, num_steps=200, action=0):
     obs, info = safe_reset(env)
     history = []
     for _ in range(num_steps):
-        result = env.step(action)
-        if len(result) == 5:
-            _, _, terminated, truncated, info = result
+        res = env.step(action)
+        if len(res) == 5:
+            _, _, terminated, truncated, info = res
             done = terminated or truncated
         else:
-            _, _, done, info = result
+            _, _, done, info = res
         history.append(info['phoneme'])
         if done:
             break
     return np.array(history)
 
-# 1) Either:
-# env = GuestEnv(energy_imbalance=0.7)
-
-# 2) Or, post‐init:
+# Instantiate the environment
 env = GuestEnv()
-# make Agent 0 super‐reserved
+
+# Configure agent personalities
 env.agent_params[0].update({
     'min_energy_to_speak': 0.6,
     'energy_gain':         0.01,
@@ -73,8 +74,6 @@ env.agent_params[0].update({
     'max_speaking_time':   2,
     'phonemes_per_step':   1,
 })
-
-# make Agent 1 “normal”—leave at defaults (or tweak slightly)
 env.agent_params[1].update({
     'min_energy_to_speak': 0.3,
     'energy_gain':         0.05,
@@ -82,8 +81,6 @@ env.agent_params[1].update({
     'max_speaking_time':   5,
     'phonemes_per_step':   2,
 })
-
-# make Agent 2 super‐talkative
 env.agent_params[2].update({
     'min_energy_to_speak': 0.1,
     'energy_gain':         0.10,
@@ -92,41 +89,42 @@ env.agent_params[2].update({
     'phonemes_per_step':   4,
 })
 
+# Run dry-run
 phonemes = run_and_collect_phonemes(env, num_steps=200, action=0)
 T, N = phonemes.shape
 
-# Create output dir
-output_dir = './phoneme_plots'
+# Prepare output
+output_dir = './phoneme_plots_config'
 os.makedirs(output_dir, exist_ok=True)
 saved_files = []
 
-# Save individual agent plots
+# Separate plots
 for i in range(N):
     plt.figure()
     plt.plot(np.arange(T), phonemes[:, i])
-    plt.title(f'Agent {i} Phoneme Count Over Time')
+    plt.title(f'Agent {i} Phoneme Count (Configured)')
     plt.xlabel('Timestep')
     plt.ylabel('Phonemes')
     plt.grid(True)
-    filepath = os.path.join(output_dir, f'agent_{i}.png')
-    plt.savefig(filepath)
+    fpath = os.path.join(output_dir, f'agent_{i}_cfg.png')
+    plt.savefig(fpath)
     plt.close()
-    saved_files.append(filepath)
+    saved_files.append(fpath)
 
-# Save combined plot
+# Combined plot
 plt.figure()
 for i in range(N):
     plt.plot(np.arange(T), phonemes[:, i], label=f'Agent {i}')
-plt.title('All Agents Phoneme Counts Over Time')
+plt.title('All Agents Phonemes (Configured)')
 plt.xlabel('Timestep')
 plt.ylabel('Phonemes')
 plt.legend()
 plt.grid(True)
-combined_path = os.path.join(output_dir, 'all_agents.png')
-plt.savefig(combined_path)
+combined = os.path.join(output_dir, 'all_agents_cfg.png')
+plt.savefig(combined)
 plt.close()
-saved_files.append(combined_path)
+saved_files.append(combined)
 
-# Output saved file paths
+print("Generated plots:")
 for f in saved_files:
     print(f)

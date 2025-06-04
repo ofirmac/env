@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 # Import the environment
 sys.path.insert(0, os.path.abspath(os.getcwd()))
 # 1) Adjust this import to wherever your env lives:
-from env.env_gym import GuestEnv
+from guest_env.env_gym import GuestEnv
 
 def reset_env(env, seed=None):
     """

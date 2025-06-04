@@ -1,9 +1,5 @@
-import sys
-sys.path.append('/home/ofir_machlof/guest-thesis')
-print(sys.path)
-
-import sys
 import os
+import sys
 import numpy as np
 import torch
 import gymnasium as gym
@@ -17,7 +13,7 @@ from datetime import datetime
 from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.evaluation import evaluate_policy
 
-from guest_env.newEnvGPT import GuestEnv
+from guest_env.env_gym import GuestEnv
 
 class FrameStackWrapper(gym.Wrapper):
     def __init__(self, env, n_frames):
