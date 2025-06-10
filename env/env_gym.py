@@ -40,7 +40,8 @@ class GuestEnv(gym.Env):
 
     def __init__(self, *, max_steps: int = 600, seed: int = 42, 
                  imbalance_factor: float = 0.0,  # 0.0 to 1.0, controls natural imbalance
-                 energy_imbalance: float = 0.0):  # 0.0 to 1.0, controls initial energy imbalance
+                 energy_imbalance: float = 0.0,
+                 reward_shaping = True):  # 0.0 to 1.0, controls initial energy imbalance
         super().__init__()
         self.max_steps = max_steps
         self.seed = seed
@@ -58,25 +59,25 @@ class GuestEnv(gym.Env):
         # Agent-specific parameters
         self.agent_params = {
             0: {  # Reserved agent
-                'min_energy_to_speak': 0.4,
-                'energy_decay': 0.08,
+                'min_energy_to_speak': 0.5,
+                'energy_decay': 0.05,
                 'energy_gain': 0.04,
-                'max_speaking_time': 4,
-                'phonemes_per_step': 2
+                'max_speaking_time': 5,
+                'phonemes_per_step': 3
             },
             1: {  # Balanced agent
-                'min_energy_to_speak': 0.3,
-                'energy_decay': 0.1,
+                'min_energy_to_speak': 0.5,
+                'energy_decay': 0.5,
                 'energy_gain': 0.05,
                 'max_speaking_time': 5,
-                'phonemes_per_step': 1
+                'phonemes_per_step': 3
             },
             2: {  # Energetic agent
-                'min_energy_to_speak': 0.25,
-                'energy_decay': 0.12,
+                'min_energy_to_speak': 0.9,
+                'energy_decay': 0.2,
                 'energy_gain': 0.06,
-                'max_speaking_time': 6,
-                'phonemes_per_step': 1
+                'max_speaking_time': 5,
+                'phonemes_per_step': 3
             }
         }
 
@@ -91,6 +92,8 @@ class GuestEnv(gym.Env):
         # Imbalance tracking
         self.gini_history = []
         self.phoneme_history = []
+
+        self.reward_shaping = reward_shaping
 
     def _get_obs(self) -> np.ndarray:
         obs = []
@@ -203,14 +206,15 @@ class GuestEnv(gym.Env):
         gini = self._gini()
         reward = 1.0 - gini  # Base reward on equality
 
-        # Additional reward shaping
-        if self.current_speaker != -1:
-            # Bonus for new speaker
-            if self.speaking_time[self.current_speaker] == 1:
-                reward += 0.2
-            # Penalty for long speaking turns
-            if self.speaking_time[self.current_speaker] > self.agent_params[self.current_speaker]['max_speaking_time'] * 0.8:
-                reward -= 0.1
+        if self.reward_shaping:
+            # Additional reward shaping
+            if self.current_speaker != -1:
+                # Bonus for new speaker
+                if self.speaking_time[self.current_speaker] == 1:
+                    reward += 0.2
+                # Penalty for long speaking turns
+                if self.speaking_time[self.current_speaker] > self.agent_params[self.current_speaker]['max_speaking_time'] * 0.8:
+                    reward -= 0.1
 
         terminated = False
         truncated = self.step_counter >= self.max_steps
