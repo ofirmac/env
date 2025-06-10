@@ -21,16 +21,16 @@ class MetricsCallback(BaseCallback):
         return True
 
 
-def train(total_timesteps: int = 20000, results_dir: str = "ppo_results") -> None:
+def train(total_timesteps: int = 600, results_dir: str = "ppo_results_600") -> None:
     os.makedirs(results_dir, exist_ok=True)
 
     env = DummyVecEnv([
-        lambda: GuestEnv(max_steps=600, imbalance_factor=0.3, energy_imbalance=0.5)
+        lambda: GuestEnv(max_steps=600, imbalance_factor=0.3, energy_imbalance=0.5, reward_shaping=False)
     ])
     model = PPO("MlpPolicy", env, verbose=1)
     callback = MetricsCallback()
     model.learn(total_timesteps=total_timesteps, callback=callback)
-    model.save(os.path.join(results_dir, "ppo_guest"))
+    model.save(os.path.join(results_dir, "ppo_guest_600"))
 
     phonemes = np.array(callback.phonemes)
 
