@@ -11,7 +11,12 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.logger import TensorBoardOutputFormat
 from stable_baselines3.common.callbacks import BaseCallback
+from loguru import logger
+import sys
 
+logger.remove()
+logger.add(sys.stdout, level="INFO",format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(sys.stdout, colorize=True, format="<green>{time}</green> <level>{message}</level>", level="INFO")
 
 # ------------------------------------------------------------------------
 # 1.  ENVIRONMENT
@@ -41,13 +46,15 @@ class GuestEnv(gym.Env):
     def __init__(self, *, max_steps: int = 600, seed: int = 42, 
                  imbalance_factor: float = 0.0,  # 0.0 to 1.0, controls natural imbalance
                  energy_imbalance: float = 0.0,
-                 reward_shaping = True):  # 0.0 to 1.0, controls initial energy imbalance
+                 reward_shaping = True,
+                 logfile = False):  # 0.0 to 1.0, controls initial energy imbalance
         super().__init__()
         self.max_steps = max_steps
         self.seed = seed
         self.rng = np.random.default_rng(seed)
-        self.imbalance_factor = imbalance_factor
+        self.imbalance_factor = imbalance_factor #It gives you a single knob (imbalance_factor) to favor “higher-index” agents (2) over “lower-index” ones (0), with agent 1 in the middle.
         self.energy_imbalance = energy_imbalance
+        self.reward_shaping = reward_shaping
 
         # Action space: 8 discrete Guest actions
         self.action_space = spaces.Discrete(len(ACTIONS))
@@ -91,9 +98,10 @@ class GuestEnv(gym.Env):
         
         # Imbalance tracking
         self.gini_history = []
+        self.env_reward = []
         self.phoneme_history = []
-
-        self.reward_shaping = reward_shaping
+        if logfile:
+            logger.add("guest_{time:YYYY-MM-DD}.log", enqueue=True)
 
     def _get_obs(self) -> np.ndarray:
         obs = []
@@ -103,7 +111,9 @@ class GuestEnv(gym.Env):
                 self.speaking_time[i] / self.agent_params[i]['max_speaking_time'],
                 float(self.phonemes[i]),
             ])
-        return np.asarray(obs, dtype=np.float32)
+        return_obs = np.asarray(obs, dtype=np.float32)
+        logger.debug(f"{return_obs=}")
+        return return_obs # for example [1.  4.  7.2 2.  5.  8.2 3.  6.  9.2]
 
     def _gini(self) -> float:
         total = np.sum(self.phonemes)
@@ -112,7 +122,7 @@ class GuestEnv(gym.Env):
         x = self.phonemes.astype(float)
         diffs = np.abs(x[:, None] - x[None, :]).sum()
         n = len(x)
-        return float(diffs / (2 * n * total))
+        return float(diffs / (2 * n * total)) 
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -150,12 +160,14 @@ class GuestEnv(gym.Env):
             phoneme_history=self.phoneme_history
         )
         return obs, info
-
+    
+    @logger.catch
     def step(self, action: int):
         self.step_counter += 1
         self.action_stats[action] += 1
 
         # Process Guest action with imbalance factor
+        logger.debug(f"{self.current_speaker=}")
         if action == 1 and self.current_speaker != -1:  # stop
             self.energy[self.current_speaker] = 0.0
             self.current_speaker = -1
@@ -175,8 +187,10 @@ class GuestEnv(gym.Env):
             if i != self.current_speaker:
                 gain = params['energy_gain'] * (1 + self.imbalance_factor * (i - 1))
                 self.energy[i] = min(1.0, self.energy[i] + gain)
+                logger.debug(f"{self.energy[i]}")
             else:
                 self.energy[i] = max(0.0, self.energy[i] - params['energy_decay'])
+                logger.debug(f"{self.energy[i]}")
 
         # Speaking dynamics with agent-specific parameters
         if self.current_speaker == -1:
@@ -189,6 +203,7 @@ class GuestEnv(gym.Env):
             if len(candidates) > 0:
                 # Choose speaker with highest energy
                 self.current_speaker = candidates[np.argmax(self.energy[candidates])]
+                logger.debug(f"{self.current_speaker=}")
                 self.speaking_time[self.current_speaker] = 0
         else:
             # Current speaker continues or yields based on their parameters
@@ -232,6 +247,7 @@ class GuestEnv(gym.Env):
 
         # Track history
         self.gini_history.append(1.0 - info["env_reward"])
+        self.env_reward.append(info["env_reward"])
         self.phoneme_history.append(self.phonemes.copy())
 
         return obs, reward, terminated, truncated, info
