@@ -21,16 +21,19 @@ class MetricsCallback(BaseCallback):
         return True
 
 
-def train(total_timesteps: int = 600, results_dir: str = "ppo_results_600") -> None:
+def train(total_timesteps: int = 5000*1000, results_dir: str = "ppo_results") -> None:
     os.makedirs(results_dir, exist_ok=True)
-
+    env = GuestEnv(max_steps=5000, reward_shaping=False)
+    env.agent_params[0].update({'min_energy_to_speak':0.6,'energy_gain':0.01,'energy_decay':0.15,'max_speaking_time':2,'phonemes_per_step':1})
+    env.agent_params[1].update({'min_energy_to_speak':0.3,'energy_gain':0.05,'energy_decay':0.10,'max_speaking_time':5,'phonemes_per_step':2})
+    env.agent_params[2].update({'min_energy_to_speak':0.1,'energy_gain':0.10,'energy_decay':0.05,'max_speaking_time':8,'phonemes_per_step':4})
     env = DummyVecEnv([
-        lambda: GuestEnv(max_steps=600, imbalance_factor=0.3, energy_imbalance=0.5, reward_shaping=False)
+        lambda: env
     ])
     model = PPO("MlpPolicy", env, verbose=1)
     callback = MetricsCallback()
     model.learn(total_timesteps=total_timesteps, callback=callback)
-    model.save(os.path.join(results_dir, "ppo_guest_600"))
+    model.save(os.path.join(results_dir, "ppo_guest"))
 
     phonemes = np.array(callback.phonemes)
 
