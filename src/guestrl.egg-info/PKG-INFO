@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: guestrl
+Version: 0.1.0
+Summary: Reinforcement learning environment for multi-agent fairness
+Author: Your Name
+Author-email: Your Name <your@email.com>
+Requires-Python: >=3.8
