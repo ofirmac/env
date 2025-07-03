@@ -234,7 +234,7 @@ class CallbackPerEpisode(BaseCallback):
         steps = range(len(episode_data['rewards']))
         
         # Create figure with subplots
-        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        fig, axes = plt.subplots(3, 3, figsize=(15, 10))
         fig.suptitle(f'Episode {episode_idx + 1} - Step-by-Step Analysis', fontsize=16)
         
         # Plot 1: Rewards over steps
@@ -282,10 +282,181 @@ class CallbackPerEpisode(BaseCallback):
             axes[1, 1].text(0.5, 0.5, 'No valid actions recorded', 
                            transform=axes[1, 1].transAxes, ha='center', va='center')
             axes[1, 1].set_title('Action Distribution')
+
+        # Create arrays to track cumulative counts for each action
+        # Graph 1 - wait and stop (actions 0, 1)
+        wait_counts = np.cumsum(np.array(actions) == 0)
+        stop_counts = np.cumsum(np.array(actions) == 1)
+
+        # Graph 2 - stare_at actions (actions 2, 3, 4)
+        stare_0_counts = np.cumsum(np.array(actions) == 2)
+        stare_1_counts = np.cumsum(np.array(actions) == 3)
+        stare_2_counts = np.cumsum(np.array(actions) == 4)
+
+        # Graph 3 - encourage actions (actions 5, 6, 7)
+        encourage_0_counts = np.cumsum(np.array(actions) == 5)
+        encourage_1_counts = np.cumsum(np.array(actions) == 6)
+        encourage_2_counts = np.cumsum(np.array(actions) == 7)
+
+        axes[2, 0].plot(steps, wait_counts, label='Wait (0)', linewidth=2)
+        axes[2, 0].plot(steps, stop_counts, label='Stop (1)', linewidth=2)
+        axes[2, 0].set_title('Cumulative Wait and Stop Actions')
+        axes[2, 0].set_xlabel('Step')
+        axes[2, 0].set_ylabel('Cumulative Count')
+        axes[2, 0].legend()
+        axes[2, 0].grid(True)
+
+        # Set y-ticks to show all values for Graph 1
+        max_val_g1 = max(wait_counts[-1], stop_counts[-1])
+        if max_val_g1 < 20:  # Only show all ticks if not too many
+            axes[2, 0].set_yticks(range(int(max_val_g1) + 1))
+
+        # Graph 2 - stare_at actions at position [0, 1]
+        axes[2, 1].plot(steps, stare_0_counts, label='Stare at 0 (2)', linewidth=2)
+        axes[2, 1].plot(steps, stare_1_counts, label='Stare at 1 (3)', linewidth=2)
+        axes[2, 1].plot(steps, stare_2_counts, label='Stare at 2 (4)', linewidth=2)
+        axes[2, 1].set_title('Cumulative Stare At Actions')
+        axes[2, 1].set_xlabel('Step')
+        axes[2, 1].set_ylabel('Cumulative Count')
+        axes[2, 1].legend()
+        axes[2, 1].grid(True)
+
+        # Set y-ticks to show all values for Graph 2
+        max_val_g2 = max(stare_0_counts[-1], stare_1_counts[-1], stare_2_counts[-1])
+        if max_val_g2 < 20:  # Only show all ticks if not too many
+            axes[0, 1].set_yticks(range(int(max_val_g2) + 1))
+
+        # Graph 3 - encourage actions at position [1, 0]
+        axes[2, 2].plot(steps, encourage_0_counts, label='Encourage 0 (5)', linewidth=2)
+        axes[2, 2].plot(steps, encourage_1_counts, label='Encourage 1 (6)', linewidth=2)
+        axes[2, 2].plot(steps, encourage_2_counts, label='Encourage 2 (7)', linewidth=2)
+        axes[2, 2].set_title('Cumulative Encourage Actions')
+        axes[2, 2].set_xlabel('Step')
+        axes[2, 2].set_ylabel('Cumulative Count')
+        axes[2, 2].legend()
+        axes[2, 2].grid(True)
         
         plt.tight_layout()
         plt.savefig(os.path.join(save_dir, f'episode_{episode_idx + 1:03d}.png'), 
                    dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    def _create_episode_plot_3(self, episode_idx: int, save_dir: str):
+        """Create a detailed plot for a single episode."""
+        if episode_idx >= len(self.episodes_step_data):
+            return
+            
+        episode_data = self.episodes_step_data[episode_idx]
+        steps = range(len(episode_data['rewards']))
+        
+        # Create figure with subplots: 3 rows with different column counts
+        fig = plt.figure(figsize=(18, 15))
+        # Define a grid specification with 3 rows
+        gs = fig.add_gridspec(3, 3, height_ratios=[1, 1, 1])
+        
+        # First row: 2 plots (spans 2 columns each)
+        ax1 = fig.add_subplot(gs[0, 0:3])  # Rewards plot (spans first 2 columns)
+        # ax2 = fig.add_subplot(gs[0, 2])    # Phonemes plot
+        
+        # Second row: 2 plots (spans 2 columns each)
+        ax3 = fig.add_subplot(gs[1, 0:3])  # Gini plot (spans first 2 columns)
+        # ax4 = fig.add_subplot(gs[1, 2])    # Action distribution plot
+        
+        # Third row: 3 action type plots
+        ax5 = fig.add_subplot(gs[2, 0])    # Wait/Stop actions
+        ax6 = fig.add_subplot(gs[2, 1])    # Stare actions
+        ax7 = fig.add_subplot(gs[2, 2])    # Encourage actions
+        
+        fig.suptitle(f'Episode {episode_idx + 1} - Step-by-Step Analysis', fontsize=16)
+        
+        # Plot 1: Rewards over steps
+        ax1.plot(steps, episode_data['rewards'], 'b-', alpha=0.7, label='Step Reward')
+        # ax1.plot(steps, episode_data['cumulative_reward'], 'r-', alpha=0.7, label='Cumulative Reward')
+        ax1.set_xlabel('Step')
+        ax1.set_ylabel('Reward')
+        ax1.set_title('Rewards per Step')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Plot 2: Phonemes per agent over steps
+        phonemes_array = np.array(episode_data['phonemes'])
+        num_agents = phonemes_array.shape[1] if len(phonemes_array) > 0 else 3
+
+        colors = ['blue', 'orange', 'green']
+        
+        for agent_idx in range(num_agents):
+            if len(phonemes_array) > 0:
+                agent_phonemes = phonemes_array[:, agent_idx]
+                ax3.plot(steps, agent_phonemes, label=f'Agent {agent_idx}', color=colors[agent_idx], alpha=1)
+        
+        ax3.set_xlabel('Step')
+        ax3.set_ylabel('Phoneme Count')
+        ax3.set_title('Phonemes per Agent')
+        ax3.legend()
+        ax3.grid(True, alpha=0.3)
+        # Plot 4: Action distribution
+        actions = episode_data['actions']
+    
+        wait_counts = np.cumsum(np.array(actions) == 0)
+        stop_counts = np.cumsum(np.array(actions) == 1)
+        
+        # Graph 2 - stare_at actions (actions 2, 3, 4)
+        stare_0_counts = np.cumsum(np.array(actions) == 2)
+        stare_1_counts = np.cumsum(np.array(actions) == 3)
+        stare_2_counts = np.cumsum(np.array(actions) == 4)
+        
+        # Graph 3 - encourage actions (actions 5, 6, 7)
+        encourage_0_counts = np.cumsum(np.array(actions) == 5)
+        encourage_1_counts = np.cumsum(np.array(actions) == 6)
+        encourage_2_counts = np.cumsum(np.array(actions) == 7)
+        
+        # Wait/Stop actions plot
+        ax5.plot(steps, wait_counts, color="#f47906", linewidth=2, label='Wait (0)')  # Dark Magenta
+        ax5.plot(steps, stop_counts, color="#dc0c39", linewidth=2, label='Stop (1)')  # Gold
+        ax5.set_title('Cumulative Wait and Stop Actions')
+        ax5.set_xlabel('Step')
+        ax5.set_ylabel('Count')
+        ax5.legend()
+        ax5.grid(True)
+        
+        # Set y-ticks to show all values for Graph 1
+        max_val_g1 = max(wait_counts[-1], stop_counts[-1])
+        if max_val_g1 < 20:  # Only show all ticks if not too many
+            ax5.set_yticks(range(int(max_val_g1) + 1))
+        
+        # Stare actions plot
+        ax6.plot(steps, stare_0_counts, 'b-', linewidth=2, label='Stare at 0 (2)')  
+        ax6.plot(steps, stare_1_counts, color='orange', linewidth=2, label='Stare at 1 (3)')  
+        ax6.plot(steps, stare_2_counts, 'g-', linewidth=2, label='Stare at 2 (4)')  
+        ax6.set_title('Cumulative Stare At Actions')
+        ax6.set_xlabel('Step')
+        ax6.set_ylabel('Count')
+        ax6.legend()
+        ax6.grid(True)
+        
+        # Set y-ticks to show all values for Graph 2
+        max_val_g2 = max(stare_0_counts[-1], stare_1_counts[-1], stare_2_counts[-1])
+        if max_val_g2 < 20:  # Only show all ticks if not too many
+            ax6.set_yticks(range(int(max_val_g2) + 1))
+        
+        # Encourage actions plot
+        ax7.plot(steps, encourage_0_counts, 'b-', linewidth=2, label='Encourage 0 (5)')  
+        ax7.plot(steps, encourage_1_counts, color='orange', linewidth=2, label='Encourage 1 (6)')  
+        ax7.plot(steps, encourage_2_counts, 'g-', linewidth=2, label='Encourage 2 (7)')  
+        ax7.set_title('Cumulative Encourage Actions')
+        ax7.set_xlabel('Step')
+        ax7.set_ylabel('Count')
+        ax7.legend()
+        ax7.grid(True)
+        
+        # Set y-ticks to show all values for Graph 3
+        max_val_g3 = max(encourage_0_counts[-1], encourage_1_counts[-1], encourage_2_counts[-1])
+        if max_val_g3 < 20:  # Only show all ticks if not too many
+            ax7.set_yticks(range(int(max_val_g3) + 1))
+        
+        plt.tight_layout(rect=[0, 0, 1, 0.96])  # Make room for the title
+        plt.savefig(os.path.join(save_dir, f'episode_{episode_idx + 1:03d}.png'), 
+                dpi=300, bbox_inches='tight')
         plt.close()
     
     def _create_summary_plots(self, results_dir: str):
