@@ -93,7 +93,7 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = "ppo_results_per_e
     # callback.create_final_plots("./results", plot_episodes=[0, 4, 9])
 
     # Plot all episodes (if you have few episodes)
-    callback.save_data("ppo_results_per_episode_pkl/callback_data.pkl")
+    callback.save_data("ppo_results_per_episode_pkl/old_obs.pkl")
     # callback.create_final_plots(results_dir, plot_episodes=list(range(len(callback.episodes_step_data))))
 
     print(f"Training completed! Results saved to: {results_dir}")
