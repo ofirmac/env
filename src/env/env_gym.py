@@ -61,8 +61,8 @@ class GuestEnv(gym.Env):
 
         # Observation space: [energy, speaking_time, total_phonemes] * 3
         high = np.array([1.0, 1.0, np.inf] * 3, dtype=np.float32)
-        # self.observation_space = spaces.Box(low=0.0, high=high, dtype=np.float32)
-        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(17,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0.0, high=high, dtype=np.float32)
+        # self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(17,), dtype=np.float32)
 
         # Agent-specific parameters
         self.agent_params = {
@@ -104,67 +104,67 @@ class GuestEnv(gym.Env):
         if logfile:
             logger.add("guest_{time:YYYY-MM-DD}.log", enqueue=True)
 
-    # def _get_obs(self) -> np.ndarray:
-    #     obs = []
-    #     for i in range(3):
-    #         obs.extend([
-    #             self.energy[i],
-    #             self.speaking_time[i] / self.agent_params[i]['max_speaking_time'],
-    #             float(self.phonemes[i]),
-    #         ])
-    #     return_obs = np.asarray(obs, dtype=np.float32)
-    #     logger.debug(f"{return_obs=}")
-    #     return return_obs # for example [1.  4.  7.2 2.  5.  8.2 3.  6.  9.2]
-
     def _get_obs(self) -> np.ndarray:
-        """Enhanced observation with softmax distributions and relative features."""
         obs = []
-        
-        # 1. ENERGY LEVELS (normalized)
-        energy_normalized = self.energy.copy()
-        obs.extend(energy_normalized)  # [3 values: 0-1]
-        
-        # 2. SPEAKING TIME RATIOS (normalized by max)
-        speaking_ratios = []
         for i in range(3):
-            ratio = self.speaking_time[i] / self.agent_params[i]['max_speaking_time']
-            speaking_ratios.append(min(1.0, ratio))
-        obs.extend(speaking_ratios)  # [3 values: 0-1]
+            obs.extend([
+                self.energy[i],
+                self.speaking_time[i] / self.agent_params[i]['max_speaking_time'],
+                float(self.phonemes[i]),
+            ])
+        return_obs = np.asarray(obs, dtype=np.float32)
+        logger.debug(f"{return_obs=}")
+        return return_obs # for example [1.  4.  7.2 2.  5.  8.2 3.  6.  9.2]
+
+    # def _get_obs(self) -> np.ndarray:
+    #     """Enhanced observation with softmax distributions and relative features."""
+    #     obs = []
         
-        # 3. PHONEME DISTRIBUTION (softmax normalized)
-        total_phonemes = np.sum(self.phonemes)
-        if total_phonemes > 0:
-            phoneme_distribution = self.phonemes / total_phonemes  # Relative proportions
-        else:
-            phoneme_distribution = np.ones(3) / 3  # Equal if no speech yet
-        obs.extend(phoneme_distribution)  # [3 values: sum=1.0]
+    #     # 1. ENERGY LEVELS (normalized)
+    #     energy_normalized = self.energy.copy()
+    #     obs.extend(energy_normalized)  # [3 values: 0-1]
         
-        # 4. CURRENT SPEAKER (one-hot encoded)
-        speaker_encoding = np.zeros(4)  # [nobody, agent0, agent1, agent2]
-        if self.current_speaker == -1:
-            speaker_encoding[0] = 1.0
-        else:
-            speaker_encoding[self.current_speaker + 1] = 1.0
-        obs.extend(speaker_encoding)  # [4 values: one-hot]
+    #     # 2. SPEAKING TIME RATIOS (normalized by max)
+    #     speaking_ratios = []
+    #     for i in range(3):
+    #         ratio = self.speaking_time[i] / self.agent_params[i]['max_speaking_time']
+    #         speaking_ratios.append(min(1.0, ratio))
+    #     obs.extend(speaking_ratios)  # [3 values: 0-1]
         
-        # 5. BALANCE METRICS
-        gini = self._gini()
-        obs.append(gini)  # [1 value: 0-1, lower=better]
+    #     # 3. PHONEME DISTRIBUTION (softmax normalized)
+    #     total_phonemes = np.sum(self.phonemes)
+    #     if total_phonemes > 0:
+    #         phoneme_distribution = self.phonemes / total_phonemes  # Relative proportions
+    #     else:
+    #         phoneme_distribution = np.ones(3) / 3  # Equal if no speech yet
+    #     obs.extend(phoneme_distribution)  # [3 values: sum=1.0]
         
-        # 6. PHONEME STATISTICS (normalized)
-        if total_phonemes > 0:
-            phoneme_std = np.std(self.phonemes) / (total_phonemes / 3)  # Normalized std
-            phoneme_range = (np.max(self.phonemes) - np.min(self.phonemes)) / (total_phonemes / 3)
-        else:
-            phoneme_std = 0.0
-            phoneme_range = 0.0
-        obs.extend([phoneme_std, phoneme_range])  # [2 values: balance measures]
+    #     # 4. CURRENT SPEAKER (one-hot encoded)
+    #     speaker_encoding = np.zeros(4)  # [nobody, agent0, agent1, agent2]
+    #     if self.current_speaker == -1:
+    #         speaker_encoding[0] = 1.0
+    #     else:
+    #         speaker_encoding[self.current_speaker + 1] = 1.0
+    #     obs.extend(speaker_encoding)  # [4 values: one-hot]
         
-        # 7. PROGRESS INDICATOR
-        progress = self.step_counter / self.max_steps
-        obs.append(progress)  # [1 value: 0-1]
+    #     # 5. BALANCE METRICS
+    #     gini = self._gini()
+    #     obs.append(gini)  # [1 value: 0-1, lower=better]
         
-        return np.asarray(obs, dtype=np.float32)  # Total: 18 features
+    #     # 6. PHONEME STATISTICS (normalized)
+    #     if total_phonemes > 0:
+    #         phoneme_std = np.std(self.phonemes) / (total_phonemes / 3)  # Normalized std
+    #         phoneme_range = (np.max(self.phonemes) - np.min(self.phonemes)) / (total_phonemes / 3)
+    #     else:
+    #         phoneme_std = 0.0
+    #         phoneme_range = 0.0
+    #     obs.extend([phoneme_std, phoneme_range])  # [2 values: balance measures]
+        
+    #     # 7. PROGRESS INDICATOR
+    #     progress = self.step_counter / self.max_steps
+    #     obs.append(progress)  # [1 value: 0-1]
+        
+    #     return np.asarray(obs, dtype=np.float32)  # Total: 18 features
 
     def _gini(self) -> float:
         total = np.sum(self.phonemes)
