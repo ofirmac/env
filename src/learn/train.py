@@ -81,7 +81,7 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = "ppo_results_per_e
     )
     
     # Save the model
-    model.save(os.path.join(results_dir, "ppo_guest"))
+    model.save(os.path.join(results_dir, "ppo_guest_softmax"))
     
     # Create final plots
     # callback.create_final_plots(results_dir)
@@ -93,7 +93,7 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = "ppo_results_per_e
     # callback.create_final_plots("./results", plot_episodes=[0, 4, 9])
 
     # Plot all episodes (if you have few episodes)
-    callback.save_data("ppo_results_per_episode_pkl/old_obs.pkl")
+    callback.save_data("ppo_results_per_episode_pkl/old_obs_softmax.pkl")
     # callback.create_final_plots(results_dir, plot_episodes=list(range(len(callback.episodes_step_data))))
 
     print(f"Training completed! Results saved to: {results_dir}")

@@ -110,8 +110,16 @@ class GuestEnv(gym.Env):
             obs.extend([
                 self.energy[i],
                 self.speaking_time[i] / self.agent_params[i]['max_speaking_time'],
-                float(self.phonemes[i]),
+                # float(self.phonemes[i]),
             ])
+        # 3. PHONEME DISTRIBUTION (softmax normalized)
+        total_phonemes = np.sum(self.phonemes)
+        if total_phonemes > 0:
+            phoneme_distribution = self.phonemes / total_phonemes  # Relative proportions
+        else:
+            phoneme_distribution = np.ones(3) / 3  # Equal if no speech yet
+        obs.extend(phoneme_distribution)  # [3 values: sum=1.0]
+
         return_obs = np.asarray(obs, dtype=np.float32)
         logger.debug(f"{return_obs=}")
         return return_obs # for example [1.  4.  7.2 2.  5.  8.2 3.  6.  9.2]
