@@ -60,9 +60,9 @@ class GuestEnv(gym.Env):
         self.action_space = spaces.Discrete(len(ACTIONS))
 
         # Observation space: [energy, speaking_time, total_phonemes] * 3
-        high = np.array([1.0, 1.0, np.inf] * 3, dtype=np.float32)
-        self.observation_space = spaces.Box(low=0.0, high=high, dtype=np.float32)
-        # self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(17,), dtype=np.float32)
+        # high = np.array([1.0, 1.0, np.inf] * 3, dtype=np.float32)
+        # self.observation_space = spaces.Box(low=0.0, high=high, dtype=np.float32)
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(17,), dtype=np.float32)
 
         # Agent-specific parameters
         self.agent_params = {

@@ -60,15 +60,29 @@ def __init__(
 * **Spaces**:
 
   * `action_space = Discrete(8)`
-  * `observation_space = Box(low=0.0, high=[1.0,1.0,∞]×3, dtype=float32)`
+  * `observation_space = Box(low=0.0, high=(17,), dtype=float32)`
 
 * **Agent Parameters**:
 
   ```python
   self.agent_params = {
-      0: { 'min_energy_to_speak': 0.4, 'energy_decay': 0.08, 'energy_gain': 0.04, 'max_speaking_time': 4, 'phonemes_per_step': 2 },
-      1: { 'min_energy_to_speak': 0.3, 'energy_decay': 0.10, 'energy_gain': 0.05, 'max_speaking_time': 5, 'phonemes_per_step': 1 },
-      2: { 'min_energy_to_speak': 0.25,'energy_decay': 0.12,'energy_gain': 0.06,'max_speaking_time': 6,'phonemes_per_step': 1 },
+      0: {  'min_energy_to_speak': 0.4, 
+            'energy_decay': 0.08, 
+            'energy_gain': 0.04, 
+            'max_speaking_time': 4, 
+            'phonemes_per_step': 2 },
+
+      1: {  'min_energy_to_speak': 0.3, 
+            'energy_decay': 0.10, 
+            'energy_gain': 0.05, 
+            'max_speaking_time': 5, 
+            'phonemes_per_step': 1 },
+
+      2: {  'min_energy_to_speak': 0.25,
+            'energy_decay': 0.12,
+            'energy_gain': 0.06,
+            'max_speaking_time': 6,
+            'phonemes_per_step': 1 },
   }
   ```
 
@@ -128,7 +142,7 @@ obs, info = env.reset()
 ### 5. Observation (`_get_obs`)
 
 Constructs a 9-element vector:
-
+### Old:
 ```python
 obs = [
     energy[0], speaking_time[0]/max_speaking_time[0], phonemes[0],
@@ -139,6 +153,34 @@ obs = [
 
 Normalized values help continuous control.
 
+
+  ### New :
+  Constructs a **17-element** vector:
+
+  ```python
+  obs = [
+      # 1. ENERGY LEVELS (normalized: 3)
+      energy_normalized[0], energy_normalized[1], energy_normalized[2],
+
+      # 2. SPEAKING TIME RATIOS (normalized by max: 3)
+      speaking_ratios[0], speaking_ratios[1], speaking_ratios[2],
+
+      # 3. PHONEME DISTRIBUTION (softmax normalized: 3)
+      phoneme_distribution[0], phoneme_distribution[1], phoneme_distribution[2],
+
+      # 4. CURRENT SPEAKER (one-hot encoded: 4)
+      speaker_encoding[0], speaker_encoding[1], speaker_encoding[2], speaker_encoding[3],
+
+      # 5. BALANCE METRIC (Gini coefficient: 1)
+      gini,
+
+      # 6. PHONEME STATISTICS (normalized std & range: 2)
+      phoneme_std, phoneme_range,
+
+      # 7. PROGRESS INDICATOR (step_counter / max_steps: 1)
+      progress,
+  ]
+  ```
 ---
 
 ### 6. Gini Coefficient (`_gini`)
@@ -210,10 +252,15 @@ obs, reward, terminated, truncated, info = env.step(action)
 
    ```python
    base_reward = 1 - gini()
-   if someone just started speaking (speaking_time == 1): +0.2 bonus
-   if someone is nearing end of max_speaking_time (>80%): -0.1 penalty
-   reward = base_reward ± shaping
    ```
+    
+    ### Reward Shaping
+    ```python
+    base_reward = 1 - gini()
+    if someone just started speaking (speaking_time == 1): +0.2 bonus
+    if someone is nearing end of max_speaking_time (>80%): -0.1 penalty
+    reward = base_reward ± shaping
+    ```
 
 7. **Termination**:
 
