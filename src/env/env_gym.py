@@ -11,7 +11,12 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.logger import TensorBoardOutputFormat
 from stable_baselines3.common.callbacks import BaseCallback
+from loguru import logger
+import sys
 
+logger.remove()
+logger.add(sys.stdout, level="INFO",format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(sys.stdout, colorize=True, format="<green>{time}</green> <level>{message}</level>", level="INFO")
 
 # ------------------------------------------------------------------------
 # 1.  ENVIRONMENT
@@ -41,20 +46,23 @@ class GuestEnv(gym.Env):
     def __init__(self, *, max_steps: int = 600, seed: int = 42, 
                  imbalance_factor: float = 0.0,  # 0.0 to 1.0, controls natural imbalance
                  energy_imbalance: float = 0.0,
-                 reward_shaping = True):  # 0.0 to 1.0, controls initial energy imbalance
+                 reward_shaping = True,
+                 logfile = False):  # 0.0 to 1.0, controls initial energy imbalance
         super().__init__()
         self.max_steps = max_steps
         self.seed = seed
         self.rng = np.random.default_rng(seed)
-        self.imbalance_factor = imbalance_factor
+        self.imbalance_factor = imbalance_factor #It gives you a single knob (imbalance_factor) to favor “higher-index” agents (2) over “lower-index” ones (0), with agent 1 in the middle.
         self.energy_imbalance = energy_imbalance
+        self.reward_shaping = reward_shaping
 
         # Action space: 8 discrete Guest actions
         self.action_space = spaces.Discrete(len(ACTIONS))
 
         # Observation space: [energy, speaking_time, total_phonemes] * 3
-        high = np.array([1.0, 1.0, np.inf] * 3, dtype=np.float32)
-        self.observation_space = spaces.Box(low=0.0, high=high, dtype=np.float32)
+        # high = np.array([1.0, 1.0, np.inf] * 3, dtype=np.float32)
+        # self.observation_space = spaces.Box(low=0.0, high=high, dtype=np.float32)
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(17,), dtype=np.float32)
 
         # Agent-specific parameters
         self.agent_params = {
@@ -91,19 +99,80 @@ class GuestEnv(gym.Env):
         
         # Imbalance tracking
         self.gini_history = []
+        self.env_reward = []
         self.phoneme_history = []
+        if logfile:
+            logger.add("guest_{time:YYYY-MM-DD}.log", enqueue=True)
 
-        self.reward_shaping = reward_shaping
+    # def _get_obs(self) -> np.ndarray:
+    #     obs = []
+    #     for i in range(3):
+    #         obs.extend([
+    #             self.energy[i],
+    #             self.speaking_time[i] / self.agent_params[i]['max_speaking_time'],
+    #             # float(self.phonemes[i]),
+    #         ])
+    #     # 3. PHONEME DISTRIBUTION (softmax normalized)
+    #     total_phonemes = np.sum(self.phonemes)
+    #     if total_phonemes > 0:
+    #         phoneme_distribution = self.phonemes / total_phonemes  # Relative proportions
+    #     else:
+    #         phoneme_distribution = np.ones(3) / 3  # Equal if no speech yet
+    #     obs.extend(phoneme_distribution)  # [3 values: sum=1.0]
+
+    #     return_obs = np.asarray(obs, dtype=np.float32)
+    #     logger.debug(f"{return_obs=}")
+    #     return return_obs # for example [1.  4.  7.2 2.  5.  8.2 3.  6.  9.2]
 
     def _get_obs(self) -> np.ndarray:
+        """Enhanced observation with softmax distributions and relative features."""
         obs = []
+        
+        # 1. ENERGY LEVELS (normalized)
+        energy_normalized = self.energy.copy()
+        obs.extend(energy_normalized)  # [3 values: 0-1]
+        
+        # 2. SPEAKING TIME RATIOS (normalized by max)
+        speaking_ratios = []
         for i in range(3):
-            obs.extend([
-                self.energy[i],
-                self.speaking_time[i] / self.agent_params[i]['max_speaking_time'],
-                float(self.phonemes[i]),
-            ])
-        return np.asarray(obs, dtype=np.float32)
+            ratio = self.speaking_time[i] / self.agent_params[i]['max_speaking_time']
+            speaking_ratios.append(min(1.0, ratio))
+        obs.extend(speaking_ratios)  # [3 values: 0-1]
+        
+        # 3. PHONEME DISTRIBUTION (softmax normalized)
+        total_phonemes = np.sum(self.phonemes)
+        if total_phonemes > 0:
+            phoneme_distribution = self.phonemes / total_phonemes  # Relative proportions
+        else:
+            phoneme_distribution = np.ones(3) / 3  # Equal if no speech yet
+        obs.extend(phoneme_distribution)  # [3 values: sum=1.0]
+        
+        # 4. CURRENT SPEAKER (one-hot encoded)
+        speaker_encoding = np.zeros(4)  # [nobody, agent0, agent1, agent2]
+        if self.current_speaker == -1:
+            speaker_encoding[0] = 1.0
+        else:
+            speaker_encoding[self.current_speaker + 1] = 1.0
+        obs.extend(speaker_encoding)  # [4 values: one-hot]
+        
+        # 5. BALANCE METRICS
+        gini = self._gini()
+        obs.append(gini)  # [1 value: 0-1, lower=better]
+        
+        # 6. PHONEME STATISTICS (normalized)
+        if total_phonemes > 0:
+            phoneme_std = np.std(self.phonemes) / (total_phonemes / 3)  # Normalized std
+            phoneme_range = (np.max(self.phonemes) - np.min(self.phonemes)) / (total_phonemes / 3)
+        else:
+            phoneme_std = 0.0
+            phoneme_range = 0.0
+        obs.extend([phoneme_std, phoneme_range])  # [2 values: balance measures]
+        
+        # 7. PROGRESS INDICATOR
+        progress = self.step_counter / self.max_steps
+        obs.append(progress)  # [1 value: 0-1]
+        
+        return np.asarray(obs, dtype=np.float32)  # Total: 18 features
 
     def _gini(self) -> float:
         total = np.sum(self.phonemes)
@@ -112,7 +181,7 @@ class GuestEnv(gym.Env):
         x = self.phonemes.astype(float)
         diffs = np.abs(x[:, None] - x[None, :]).sum()
         n = len(x)
-        return float(diffs / (2 * n * total))
+        return float(diffs / (2 * n * total)) 
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -150,12 +219,14 @@ class GuestEnv(gym.Env):
             phoneme_history=self.phoneme_history
         )
         return obs, info
-
+    
+    @logger.catch
     def step(self, action: int):
         self.step_counter += 1
         self.action_stats[action] += 1
 
         # Process Guest action with imbalance factor
+        logger.debug(f"{self.current_speaker=}")
         if action == 1 and self.current_speaker != -1:  # stop
             self.energy[self.current_speaker] = 0.0
             self.current_speaker = -1
@@ -175,8 +246,10 @@ class GuestEnv(gym.Env):
             if i != self.current_speaker:
                 gain = params['energy_gain'] * (1 + self.imbalance_factor * (i - 1))
                 self.energy[i] = min(1.0, self.energy[i] + gain)
+                logger.debug(f"{self.energy[i]}")
             else:
                 self.energy[i] = max(0.0, self.energy[i] - params['energy_decay'])
+                logger.debug(f"{self.energy[i]}")
 
         # Speaking dynamics with agent-specific parameters
         if self.current_speaker == -1:
@@ -189,6 +262,7 @@ class GuestEnv(gym.Env):
             if len(candidates) > 0:
                 # Choose speaker with highest energy
                 self.current_speaker = candidates[np.argmax(self.energy[candidates])]
+                logger.debug(f"{self.current_speaker=}")
                 self.speaking_time[self.current_speaker] = 0
         else:
             # Current speaker continues or yields based on their parameters
@@ -232,6 +306,7 @@ class GuestEnv(gym.Env):
 
         # Track history
         self.gini_history.append(1.0 - info["env_reward"])
+        self.env_reward.append(info["env_reward"])
         self.phoneme_history.append(self.phonemes.copy())
 
         return obs, reward, terminated, truncated, info
