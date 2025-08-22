@@ -24,13 +24,12 @@ logger.add(sys.stdout, colorize=True, format="<green>{time}</green> <level>{mess
 
 ACTIONS = {
     0: "wait",
-    1: "stop",
-    2: "stare_at 0",
-    3: "stare_at 1",
-    4: "stare_at 2",
-    5: "encourage 0",
-    6: "encourage 1",
-    7: "encourage 2",
+    1: "stare_at 0",
+    2: "stare_at 1",
+    3: "stare_at 2",
+    4: "encourage 0",
+    5: "encourage 1",
+    6: "encourage 2",
 }
 
 class GuestEnv(gym.Env):
@@ -47,7 +46,10 @@ class GuestEnv(gym.Env):
                  imbalance_factor: float = 0.0,  # 0.0 to 1.0, controls natural imbalance
                  energy_imbalance: float = 0.0,
                  reward_shaping = True,
-                 logfile = False):  # 0.0 to 1.0, controls initial energy imbalance
+                 logfile = False,
+                 encourage_base_effect: float = 0.3,
+                 encourage_duration_steps: int = 10,
+                 encourage_stack: bool = True):  # 0.0 to 1.0, controls initial energy imbalance
         super().__init__()
         self.max_steps = max_steps
         self.seed = seed
@@ -63,6 +65,14 @@ class GuestEnv(gym.Env):
         # high = np.array([1.0, 1.0, np.inf] * 3, dtype=np.float32)
         # self.observation_space = spaces.Box(low=0.0, high=high, dtype=np.float32)
         self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(17,), dtype=np.float32)
+
+        # temporary buff
+        self.encourage_base_effect = float(encourage_base_effect)
+        self.encourage_duration_steps = int(encourage_duration_steps)
+        self.encourage_stack = bool(encourage_stack)
+
+        # active buffs per speaker: list[dict(amount, remaining)]
+        self._encourage_buffs = [[] for _ in range(3)]
 
         # Agent-specific parameters
         self.agent_params = {
@@ -103,26 +113,6 @@ class GuestEnv(gym.Env):
         self.phoneme_history = []
         if logfile:
             logger.add("guest_{time:YYYY-MM-DD}.log", enqueue=True)
-
-    # def _get_obs(self) -> np.ndarray:
-    #     obs = []
-    #     for i in range(3):
-    #         obs.extend([
-    #             self.energy[i],
-    #             self.speaking_time[i] / self.agent_params[i]['max_speaking_time'],
-    #             # float(self.phonemes[i]),
-    #         ])
-    #     # 3. PHONEME DISTRIBUTION (softmax normalized)
-    #     total_phonemes = np.sum(self.phonemes)
-    #     if total_phonemes > 0:
-    #         phoneme_distribution = self.phonemes / total_phonemes  # Relative proportions
-    #     else:
-    #         phoneme_distribution = np.ones(3) / 3  # Equal if no speech yet
-    #     obs.extend(phoneme_distribution)  # [3 values: sum=1.0]
-
-    #     return_obs = np.asarray(obs, dtype=np.float32)
-    #     logger.debug(f"{return_obs=}")
-    #     return return_obs # for example [1.  4.  7.2 2.  5.  8.2 3.  6.  9.2]
 
     def _get_obs(self) -> np.ndarray:
         """Enhanced observation with softmax distributions and relative features."""
@@ -207,6 +197,7 @@ class GuestEnv(gym.Env):
         self.action_stats[:] = 0
         self.gini_history = []
         self.phoneme_history = []
+        self._encourage_buffs = [[] for _ in range(3)]
 
         obs = self._get_obs()
         info = dict(
@@ -227,18 +218,16 @@ class GuestEnv(gym.Env):
 
         # Process Guest action with imbalance factor
         logger.debug(f"{self.current_speaker=}")
-        if action == 1 and self.current_speaker != -1:  # stop
-            self.energy[self.current_speaker] = 0.0
-            self.current_speaker = -1
-        elif 2 <= action <= 4:  # stare_at
-            target = action - 2
+        if 1 <= action <= 3:  # stare_at
+            target = action - 1
             effect = 0.2 * (1 - self.imbalance_factor)
             self.energy[target] = min(1.0, self.energy[target] + effect)
-        elif 5 <= action <= 7:  # encourage
-            target = action - 5
-            if self.current_speaker == -1:
-                effect = 0.3 * (1 - self.imbalance_factor)
-                self.energy[target] = min(1.0, self.energy[target] + effect)
+        elif 4 <= action <= 6:  # encourage
+            target = action - 4
+            self._apply_encourage(target)
+            # if self.current_speaker == -1:
+            #     effect = 0.3 * (1 - self.imbalance_factor)
+            #     self.energy[target] = min(1.0, self.energy[target] + effect)
 
         # Agent-specific energy dynamics
         for i in range(3):
@@ -308,5 +297,46 @@ class GuestEnv(gym.Env):
         self.gini_history.append(1.0 - info["env_reward"])
         self.env_reward.append(info["env_reward"])
         self.phoneme_history.append(self.phonemes.copy())
-
+        self._tick_encourage_buffs()
         return obs, reward, terminated, truncated, info
+
+
+    # ---- NEW helper methods somewhere in the class ----
+    
+    def _apply_encourage(self, target: int) -> None:
+        """Apply a temporary encourage buff to `target`."""
+        if self.current_speaker != -1:
+            return  # your existing logic: only when nobody is speaking
+        # base effect scaled by imbalance, then cap to headroom so we can remove it later safely
+        effect = self.encourage_base_effect * (1 - self.imbalance_factor)
+        headroom = 1.0 - float(self.energy[target])
+        delta = max(0.0, min(effect, headroom))
+        if delta <= 0.0:
+            return
+        
+        # apply now
+        self.energy[target] = min(1.0, float(self.energy[target]) + delta)
+
+        # record the buff so we can roll it back after N steps
+        buff = {"amount": float(delta), "remaining": int(self.encourage_duration_steps)}
+
+        if self.encourage_stack:
+            self._encourage_buffs[target].append(buff)
+        else:
+            # replace any existing buff: first remove them, then set a single new one
+            for b in self._encourage_buffs[target]:
+                self.energy[target] = max(0.0, min(1.0, float(self.energy[target]) - b["amount"]))
+            self._encourage_buffs[target] = [buff]
+
+    def _tick_encourage_buffs(self) -> None:
+        """Decrement timers and remove expired buff amounts from energy."""
+        for i in range(3):
+            kept = []
+            for b in self._encourage_buffs[i]:
+                b["remaining"] -= 1
+                if b["remaining"] <= 0:
+                    # expire: remove exactly what we added
+                    self.energy[i] = max(0.0, min(1.0, float(self.energy[i]) - b["amount"]))
+                else:
+                    kept.append(b)
+            self._encourage_buffs[i] = kept
