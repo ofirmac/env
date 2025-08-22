@@ -398,31 +398,24 @@ class CallbackPerEpisode(BaseCallback):
         actions = episode_data['actions']
     
         wait_counts = np.cumsum(np.array(actions) == 0)
-        stop_counts = np.cumsum(np.array(actions) == 1)
         
-        # Graph 2 - stare_at actions (actions 2, 3, 4)
-        stare_0_counts = np.cumsum(np.array(actions) == 2)
-        stare_1_counts = np.cumsum(np.array(actions) == 3)
-        stare_2_counts = np.cumsum(np.array(actions) == 4)
+        # Graph 2 - stare_at actions (actions 1, 2, 3)
+        stare_0_counts = np.cumsum(np.array(actions) == 1)
+        stare_1_counts = np.cumsum(np.array(actions) == 2)
+        stare_2_counts = np.cumsum(np.array(actions) == 3)
         
-        # Graph 3 - encourage actions (actions 5, 6, 7)
-        encourage_0_counts = np.cumsum(np.array(actions) == 5)
-        encourage_1_counts = np.cumsum(np.array(actions) == 6)
-        encourage_2_counts = np.cumsum(np.array(actions) == 7)
+        # Graph 3 - encourage actions (actions 4, 5, 6)
+        encourage_0_counts = np.cumsum(np.array(actions) == 4)
+        encourage_1_counts = np.cumsum(np.array(actions) == 5)
+        encourage_2_counts = np.cumsum(np.array(actions) == 6)
         
         # Wait/Stop actions plot
         ax5.plot(steps, wait_counts, color="#f47906", linewidth=2, label='Wait (0)')  # Dark Magenta
-        ax5.plot(steps, stop_counts, color="#dc0c39", linewidth=2, label='Stop (1)')  # Gold
-        ax5.set_title('Cumulative Wait and Stop Actions')
+        ax5.set_title('Cumulative Wait Actions')
         ax5.set_xlabel('Step')
         ax5.set_ylabel('Count')
         ax5.legend()
         ax5.grid(True)
-        
-        # Set y-ticks to show all values for Graph 1
-        max_val_g1 = max(wait_counts[-1], stop_counts[-1])
-        if max_val_g1 < 20:  # Only show all ticks if not too many
-            ax5.set_yticks(range(int(max_val_g1) + 1))
         
         # Stare actions plot
         ax6.plot(steps, stare_0_counts, 'b-', linewidth=2, label='Stare at 0 (2)')  
