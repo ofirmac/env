@@ -290,7 +290,8 @@ class GuestEnv(gym.Env):
             env_reward=1.0 - gini,
             action_number=int(action),
             gini_history=self.gini_history,
-            phoneme_history=self.phoneme_history
+            phoneme_history=self.phoneme_history,
+            energy=self.energy
         )
 
         # Track history

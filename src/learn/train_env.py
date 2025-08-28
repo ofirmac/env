@@ -8,7 +8,7 @@ from callback.guest_callback_per_episode import CallbackPerEpisode
 from datetime import datetime
 
 MAX_STEPS = 100
-TOTAL_TIMESTEPS = MAX_STEPS*700
+TOTAL_TIMESTEPS = MAX_STEPS*1500
 
 #-------    Main training function -------
 def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = "ppo_results_per_episode_pkl") -> None:
@@ -45,20 +45,40 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = "ppo_results_per_e
     
     # Create model with TensorBoard logging
     tensorboard_log = os.path.join(results_dir, "tensorboard")
+    # model = PPO(
+    #     "MlpPolicy", 
+    #     env, 
+    #     verbose=1,
+    #     tensorboard_log=tensorboard_log,
+    #     learning_rate=3e-4,
+    #     n_steps=2048,
+    #     batch_size=64,
+    #     n_epochs=10,
+    #     gamma=0.99,
+    #     gae_lambda=0.95,
+    #     clip_range=0.2,
+    #     ent_coef=0.01
+    # )
+
     model = PPO(
-        "MlpPolicy", 
-        env, 
-        verbose=1,
-        tensorboard_log=tensorboard_log,
-        learning_rate=3e-4,
-        n_steps=2048,
-        batch_size=64,
-        n_epochs=10,
-        gamma=0.99,
+        policy="MlpPolicy",
+        env=env,
+        learning_rate=5e-4,         # stronger updates
+        n_steps=MAX_STEPS,
+        batch_size=MAX_STEPS,         # full-episode batch
+        n_epochs=5,                 # fewer epochs (avoid overfitting critic)
+        gamma=0.995,
         gae_lambda=0.95,
-        clip_range=0.2,
-        ent_coef=0.01
+        clip_range=0.3,             # looser clipping
+        ent_coef=0.005,             # weaker entropy
+        vf_coef=0.7,                # reduce critic dominance
+        clip_range_vf=0.2,          # clip critic updates
+        max_grad_norm=0.5,
+        tensorboard_log=tensorboard_log,
+        seed=42,
+        verbose=1,
     )
+
     
 
     callback = CallbackPerEpisode(
@@ -83,7 +103,7 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = "ppo_results_per_e
     model.save(os.path.join(results_dir, f"ppo_guest_train_{date_str}"))
 
     # Plot all episodes (if you have few episodes)
-    callback.save_data(f"{results_dir}/old_obs_softmax.pkl")
+    callback.save_data(f"{results_dir}/train_{date_str}.pkl")
 
     print(f"Training completed! Results saved to: {results_dir}")
     print(f"Total episodes: {callback.episode_count}")
@@ -92,5 +112,6 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = "ppo_results_per_e
         print(f"Final episode reward: {callback.episode_rewards[-1]:.3f}")
 
 if __name__ == "__main__":
-    print("Offiiiirrrr")
-    train(results_dir="/Users/ofir/env/src/learn/train_result")
+    date_str = datetime.now().strftime("%Y_%m_%d")   
+    print(f"{date_str}")
+    train(results_dir=f"/Users/ofir/env/src/learn/train_result_{date_str}")
