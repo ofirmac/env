@@ -1,0 +1,3 @@
+src/learn/train_result_*/
+*.tfevents
+*.pkl
