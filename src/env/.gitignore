@@ -4,3 +4,6 @@ src/learn/train_result_*/
 src/learn/train_result_*/
 *.tfevents
 *.pkl
+src/learn/train_result_*/
+*.tfevents
+*.pkl
