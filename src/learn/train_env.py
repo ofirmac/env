@@ -8,7 +8,7 @@ from callback.guest_callback_per_episode import CallbackPerEpisode
 from datetime import datetime
 
 MAX_STEPS = 100
-TOTAL_TIMESTEPS = MAX_STEPS*1500
+TOTAL_TIMESTEPS = MAX_STEPS*700
 
 #-------    Main training function -------
 def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = "ppo_results_per_episode_pkl") -> None:

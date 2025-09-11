@@ -106,6 +106,11 @@ class GuestEnv(gym.Env):
         self.current_speaker = -1
         self.step_counter = 0
         self.action_stats = np.zeros(len(ACTIONS), dtype=int)
+
+        # Turn-taking selection config
+        self.speaker_tau = 3.0     # temperature: 0<tau; lower = more greedy, higher = more random
+        self.selection_mode = "softmax"  # keep for future modes ("uniform", "greedy"), currently using softmax
+
         
         # Imbalance tracking
         self.gini_history = []
@@ -220,14 +225,14 @@ class GuestEnv(gym.Env):
         logger.debug(f"{self.current_speaker=}")
         if 1 <= action <= 3:  # stare_at
             target = action - 1
-            effect = 0.2 * (1 - self.imbalance_factor)
+            effect = 0.5 * (1 - self.imbalance_factor)
             self.energy[target] = min(1.0, self.energy[target] + effect)
         elif 4 <= action <= 6:  # encourage
             target = action - 4
-            self._apply_encourage(target)
-            # if self.current_speaker == -1:
-            #     effect = 0.3 * (1 - self.imbalance_factor)
-            #     self.energy[target] = min(1.0, self.energy[target] + effect)
+            # self._apply_encourage(target)
+            if self.current_speaker == -1:
+                effect = 0.6 * (1 - self.imbalance_factor)
+                self.energy[target] = min(1.0, self.energy[target] + effect)
 
         # Agent-specific energy dynamics
         for i in range(3):
@@ -240,7 +245,24 @@ class GuestEnv(gym.Env):
                 self.energy[i] = max(0.0, self.energy[i] - params['energy_decay'])
                 logger.debug(f"{self.energy[i]}")
 
-        # Speaking dynamics with agent-specific parameters
+        # If nobody is speaking, pick the next speaker from a softmax over energy
+        # if self.current_speaker == -1:
+        #     eligible = self._eligible_mask_for_turn()   # True if energy >= min_energy_to_speak
+        #     if eligible.any():
+        #         # Softmax over energies with mask
+        #         probs = self._softmax(self.energy, tau=self.speaker_tau, mask=eligible)
+        #         next_spk = self._sample_from_probs(probs)
+        #     else:
+        #         # No one meets min energy; pick uniformly among all (or keep -1 if you prefer silence)
+        #         probs = np.ones(3) / 3.0
+        #         next_spk = self._sample_from_probs(probs)
+
+        #     self.current_speaker = int(next_spk)
+        #     self.speaking_time[self.current_speaker] = 0  # reset their speaking timer
+            # (optional) you can log these for debugging/analysis:
+            # logger.info(f"Pick speaker: probs={probs}, chosen={self.current_speaker}")
+
+        # # Speaking dynamics with agent-specific parameters
         if self.current_speaker == -1:
             # Find potential speakers based on their individual thresholds
             candidates = []
@@ -341,3 +363,46 @@ class GuestEnv(gym.Env):
                 else:
                     kept.append(b)
             self._encourage_buffs[i] = kept
+
+    def _eligible_mask_for_turn(self) -> np.ndarray:
+        """
+        An agent is eligible to start speaking if their energy is at least their min_energy_to_speak.
+        Returns a bool array of shape (3,).
+        """
+        mask = []
+        for i in range(3):
+            min_e = self.agent_params[i]['min_energy_to_speak']
+            mask.append(self.energy[i] >= min_e)
+        return np.array(mask, dtype=bool)
+
+    def _softmax(self, x: np.ndarray, tau: float = 0.0, mask: np.ndarray | None = None) -> np.ndarray:
+        """
+        Numerically-stable softmax with optional boolean mask (False => probability 0).
+        """
+        x = np.asarray(x, dtype=float)
+        if mask is None:
+            mask = np.ones_like(x, dtype=bool)
+        masked = np.where(mask, x, -np.inf)
+        # subtract max over eligible for stability
+        if not mask.any():
+            # no eligible entries; return uniform to avoid NaNs
+            return np.ones_like(x) / len(x)
+        m = np.max(masked[mask])
+        exps = np.exp(np.clip((masked - m) / max(1e-8, float(tau)), -100, 100)) * mask.astype(float)
+        Z = exps.sum()
+        if not np.isfinite(Z) or Z <= 0.0:
+            # fallback uniform over eligible
+            u = mask.astype(float)
+            return u / u.sum()
+        return exps / Z
+
+    def _sample_from_probs(self, probs: np.ndarray) -> int:
+        """
+        Draw a single index according to probs (shape (N,)).
+        """
+        rng = getattr(self, "rng", None)
+        if rng is None:
+            # safety, but you already set rng in __init__
+            rng = np.random.default_rng(42)
+            self.rng = rng
+        return int(rng.choice(len(probs), p=probs))      
