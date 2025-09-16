@@ -6,11 +6,6 @@
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
-
-from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv
-from stable_baselines3.common.logger import TensorBoardOutputFormat
-from stable_baselines3.common.callbacks import BaseCallback
 from loguru import logger
 import sys
 
@@ -245,43 +240,26 @@ class GuestEnv(gym.Env):
                 self.energy[i] = max(0.0, self.energy[i] - params['energy_decay'])
                 logger.debug(f"{self.energy[i]}")
 
-        # If nobody is speaking, pick the next speaker from a softmax over energy
+        # Speaking dynamics with agent-specific parameters
         if self.current_speaker == -1:
-            eligible = self._eligible_mask_for_turn()   # True if energy >= min_energy_to_speak
-            if eligible.any():
-                # Softmax over energies with mask
-                probs = self._softmax(self.energy, tau=self.speaker_tau, mask=eligible)
-                next_spk = self._sample_from_probs(probs)
-            else:
-                # No one meets min energy; pick uniformly among all (or keep -1 if you prefer silence)
-                probs = np.ones(3) / 3.0
-                next_spk = self._sample_from_probs(probs) 
-
-            self.current_speaker = int(next_spk)
-            self.speaking_time[self.current_speaker] = 0  # reset their speaking timer
-            # (optional) you can log these for debugging/analysis:
-            # logger.info(f"Pick speaker: probs={probs}, chosen={self.current_speaker}")
-
-        # # Speaking dynamics with agent-specific parameters
-        # if self.current_speaker == -1:
-        #     # Find potential speakers based on their individual thresholds
-        #     candidates = []
-        #     for i in range(3):
-        #         if self.energy[i] >= self.agent_params[i]['min_energy_to_speak']:
-        #             candidates.append(i)
+            # Find potential speakers based on their individual thresholds
+            candidates = []
+            for i in range(3):
+                if self.energy[i] >= self.agent_params[i]['min_energy_to_speak']:
+                    candidates.append(i)
             
-        #     if len(candidates) > 0:
-        #         # Choose speaker with highest energy
-        #         self.current_speaker = candidates[np.argmax(self.energy[candidates])]
-        #         logger.debug(f"{self.current_speaker=}")
-        #         self.speaking_time[self.current_speaker] = 0
-        # else:
-        #     # Current speaker continues or yields based on their parameters
-        #     params = self.agent_params[self.current_speaker]
-        #     self.speaking_time[self.current_speaker] += 1
-        #     if (self.speaking_time[self.current_speaker] >= params['max_speaking_time'] or 
-        #         self.energy[self.current_speaker] < params['min_energy_to_speak']):
-        #         self.current_speaker = -1
+            if len(candidates) > 0:
+                # Choose speaker with highest energy
+                self.current_speaker = candidates[np.argmax(self.energy[candidates])]
+                logger.debug(f"{self.current_speaker=}")
+                self.speaking_time[self.current_speaker] = 0
+        else:
+            # Current speaker continues or yields based on their parameters
+            params = self.agent_params[self.current_speaker]
+            self.speaking_time[self.current_speaker] += 1
+            if (self.speaking_time[self.current_speaker] >= params['max_speaking_time'] or 
+                self.energy[self.current_speaker] < params['min_energy_to_speak']):
+                self.current_speaker = -1
 
         # Update phonemes with agent-specific rates
         if self.current_speaker != -1:
