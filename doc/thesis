@@ -1,0 +1,548 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{setspace}
+\usepackage{tikz}
+\geometry{margin=1in}
+
+
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tabu}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{tcolorbox}
+
+\title{Thesis Proposal: The Guest -- Using RL to Improve Multi-User Discussions}
+\author{Efraim Ofir Machlof\\ MSc in Computer Science \\ Reichman University}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+
+In this research, we introduce \textit{Guest}, a novel reinforcement learning (RL) environment designed to improve multi-user discussions in VR. The research follows a two-phase approach: first, we develop and train an RL agent in a simulated environment where it governs the dynamics of a conversation \cite{sutton2018reinforcement} among three or more virtual participants. The agent, referred to as the \textit{Meta-Agent}, is tasked with pro-social goals, such as ensuring balanced engagement (equality) among participants while minimizing its own interventions. Once trained in simulation, the RL agent is then transferred to a real VR environment, where it interacts with actual human participants to assess its effectiveness in live discussions. Building on this foundation, the research will further explore complex social metrics and dynamics to enhance interaction quality in virtual settings. This approach introduces a novel challenge for RL in the domain of social intelligence.
+
+\end{abstract}
+
+
+\section{Introduction}
+
+The field of \textbf{reinforcement learning (RL)} has gained significant attention in recent years due to its applications across multi-agent systems, game theory, and human-computer interaction. However, there remains a research gap in using RL to address social challenges. While existing RL approaches typically prioritize optimizing rewards and improving system efficiency, there is limited focus on using RL to support social goals among human participants.
+
+To explore this, we have developed a custom Gym \cite{gymnasium2022} environment, based on an elaborate simulation developed by computational psychologists in Warsaw University.
+
+% TODO ask doron for ref[link to research group or cite a relevant paper, maybe forthcoming..?]
+
+The simulation models a collaborative session involving three participants, designed to capture the nuances of interpersonal interactions. On top of the social simulation we have introduced a Meta-Agent, controlled by a reinforcement learning (RL) algorithm, which is intended to regulate the interactions of three simulated agents within a session. Initially, the focus is on achieving equality in participant engagement as a foundational metric, with the Meta-Agent learning to minimize its own interference while promoting fairness. 
+
+Fairness in this context refers to ensuring that all participants have an equal opportunity to contribute to the discussion, preventing dominance by any single participant. This is typically measured using metrics such as the Gini coefficient, where lower values indicate more balanced engagement. 
+
+As a more ambitious social goal, we introduce increasing entropy in turn taking, i.e., the Guest is tasked to increase the variability and unpredictability of participation (turn taking behavior). A high entropy value suggests a dynamic and fluid conversation where all participants actively engage, while low entropy may indicate stagnation or one-sided discussions. By optimizing for both fairness and entropy, the Meta-Agent encourages balanced and naturally evolving interactions. 
+
+Ultimately, the goal is to deploy the trained agent within a real multi-user extended reality (XR) setting, where three human participants replace the simulated agents, allowing us to study how to transfer the Meta-Agent effectively to an environment with real humans. As the simulation is only an approximation of human behavior, we anticipate challenges in this step of transfer to reality. 
+
+The research questions guiding this thesis are:
+\begin{itemize}
+    \item How can a \textbf{Meta-Agent} be trained to \textbf{foster equal engagement among participants} while \textbf{minimizing its interventions} during the session?
+    \item How can we \textbf{transfer} the RL agent from a simulation to a multi-user setup with real human participants?
+\end{itemize}
+
+%By leveraging existing RL algorithms within this collaborative effort, the research aims to gain new insights into achieving fairness and balanced engagement in VR settings. 
+
+The expected contributions of this research are as follows:
+\begin{itemize}
+    \item \textbf{Problem Definition:} We introduce a new RL problem in the domain of social intelligence, focusing on fairness, engagement, and entropy in collaborative environments.
+    \item \textbf{Achieving Simple Social Metrics:} Demonstrating how a Meta-Agent can regulate engagement to achieve baseline metrics, such as equality, within the simulated environment.
+    \item \textbf{Addressing Complex Social Dynamics:} Extending the framework to address additional metrics, like entropy.
+    \item \textbf{Sim-to-Real Transfer:} Exploring the transferability of the Meta-Agent’s learned strategies to real-world interactions, supported by data from human participants in a VR setting.
+\end{itemize}
+
+\section{Contribution}
+
+The primary contribution of this research lies in its focus on using existing RL algorithms to promote fairness and equality in human discussions through a multi-agent simulation, introducing a novel type of social intelligence challenge for RL research. Unlike previous works that have primarily emphasized efficiency, resource allocation, or competition-driven reward maximization, this research seeks to balance address more nuanced social outcomes. 
+
+Moreover, we introduce the notion of a Meta-Agent on top of agent-based modeling (ABM) simulations. The Meta-Agent is trained to intervene as little as possible while ensuring equitable participation, thereby addressing the trade-off between fairness and intervention. This approach is novel, with the only comparable prior work being the AI Economist, which applied reinforcement learning to economic policy optimization. By integrating fairness-driven reward shaping, our method explores how RL can be leveraged not only for performance optimization but also for fostering balanced and dynamic social interactions.
+
+Fairness has been selected as an initial well-defined metric. However, it is not necessarily the ultimate goal. There are cases where encouraging specific individuals to take a more active role in discussion may be preferable—such as when participants are introverted or belong to a historically marginalized group. At the same time, complete equality in participation may not always be ideal; moderators may play an important role, some individuals may be more knowledgeable on a given topic, or certain participants may have responsibilities over others. Cultural differences can also shape what is considered a balanced discussion. Rather than treating fairness as an absolute objective, we use it as a starting point to define an initial, well-structured challenge.
+
+Future work could explore more nuanced interventions, moving beyond strict equality to incorporate complex social metrics. This could include subtle encouragement of specific individuals based on contextual factors, fostering more meaningful and context-aware participation dynamics.
+
+In the simulation context, the focus is on developing and refining a controlled multi-agent environment where the Meta-agent learns to facilitate balanced discussions. Success in this stage will be measured by the ability of the Meta-agent to maintain high levels of equality among participants, minimize its intervention frequency, and generalize to different session configurations.
+
+In the real-world context, this framework will extend to virtual reality (VR) environments, where human participants replace simulated agents, enabling the exploration of RL-driven fairness in live, immersive discussions. Here, success will be gauged by the Meta-agent's capacity to adapt to the complexities of real-world dynamics, balancing fairness and equality in a less predictable and more nuanced setting.
+
+\section{Background}
+
+% [no need for this - you are not doing MARL! you can say a few words about ABM, and then you use RL as a single Meta-Agent - it's a very different framework from MARL ]
+%RL has been widely used to model interactions in multi-agent environments, particularly in scenarios involving resource allocation, cooperation, and competition. A significant study in this domain by Perolat et al.\cite{perolat} explores how agents learn to balance personal and collective goals within a shared environment. In their work, the agents are tasked with managing common resources while preventing over-exploitation, demonstrating RL’s capability to learn complex social dynamics. This research and others by the same group \cite{perolat} have shown that RL can be designed to consider metrics such as fairness and equality in resource distribution.
+
+Agent-based modeling (ABM) provides a framework for simulating complex systems composed of autonomous entities that interact based on predefined rules. Unlike traditional reinforcement learning (RL) approaches in multi-agent systems, which focus on independent or competitive agents, our work introduces a single Meta-Agent within an ABM framework. This Meta-Agent is trained to intervene minimally while shaping interactions to encourage equitable participation. By leveraging RL in this context, we explore how an overarching agent can regulate agent-based simulations to achieve desired outcomes, offering a novel approach distinct from multi-agent reinforcement learning (MARL).  
+
+This research introduces a Meta-Agent whose objective extends beyond ensuring balanced engagement through equality-driven metrics. Instead, it explores more nuanced social objectives, such as reducing unnecessary interventions and fostering a natural flow of interactions. Unlike bottom-up approaches that emphasize emergent behaviors from individual agents, the Meta-Agent provides a top-down regulatory mechanism. This allows it to actively shape interaction dynamics to achieve specific goals while maintaining the natural flow of the system.
+
+%The main technical novelty is the Meta-Agent. By leveraging existing RL algorithms, this study aims to expand upon equality as an initial metric and proceed to investigate additional social dynamics that contribute to a balanced, realistic multi-user environment. This research builds on foundational studies in multi-agent RL but moves beyond them, aiming to create a Meta-Agent capable of adapting to real-time social dynamics.
+
+
+% \section{Method}
+% \subsection{The New Gym Environment -- ``GuestRL''}
+
+% A key component of this research is the development of a custom Gym environment, \textit{GuestRL}, created in collaboration with a research group from Warsaw University. The \textit{GuestRL} environment simulates a multi-user discussion, where three participants interact, each represented by an independent agent with specific behavioral tendencies. These agents simulate human participants, while a Meta-Agent, called ``Guest'', oversees the session, intervening when necessary to promote balanced engagement.
+
+% The framework consists of three main components:
+% \begin{itemize}
+%     \item \textbf{TalkingHeads Simulation}: An agent-based model (ABM) developed at Warsaw University that serves as the foundational layer, modeling dynamic interactions between participants in a collaborative setting.
+%     \item \textbf{GuestRL Environment}: Built on top of the TalkingHeads simulation, this environment integrates reinforcement learning (RL) to allow the Meta-Agent to adapt its interventions based on equality-driven objectives and other nuanced social metrics.
+%     \item \textbf{VRUnited Framework}: A planned extension designed to replace the TalkingHeads simulation with a virtual reality (VR) interface, providing immersive, real-time interactions while retaining compatibility with the existing GuestRL setup.by integrating into the VRUnited system (ref Ramon paper)
+% \end{itemize}
+
+
+
+
+% \begin{figure}[ht!]
+%     \centering
+%     \includegraphics[width=0.45\textwidth]{env_img/VisualDemoProcessing.png}
+%     \includegraphics[width=0.45\textwidth]{env_img/VisualDemoPython.png}
+%     \caption{Visualization of the \textit{GuestRL} environment, showing the simulated discussion participants and Meta-Agent interactions. The environment includes three agents (in red in the left figure) and the Guest (in the top left corner). The simulation calculates the gaze direction and the talk the phonemot for each agent .(courtesy Wojciech Borkowski, Warsaw Universit)}
+%     \label{fig:env_images}
+% \end{figure}
+
+
+
+% In this environment, the Meta-Agent has a few simple discrete actions:
+% \begin{itemize}
+%     \item \textbf{'stare\_at \textless target name or id \textgreater'}: The Guest focuses on a particular agent, visually directing attention toward them.
+%     \item \textbf{'encourage \textless target name or id \textgreater'}
+% : The Guest emits encouraging text directed at a specific agent, provided no other agent is speaking at that step.
+%     \item \textbf{'wait'}: Maintains the current state without introducing any new action. 
+%     \item \textbf{'stop'}: Commands the Guest to cease all actions, effectively pausing its intervention.
+% \end{itemize}
+% //TODO
+\section{Method}
+\subsection{The New Gym Environment -- ``GuestRL''}
+
+A key component of this research is the development of a custom Gym environment, \textit{GuestRL}, created in collaboration with a research group from Warsaw University. The \textit{GuestRL} environment simulates a multi-user discussion, where three participants interact, each represented by an independent agent with specific behavioral tendencies. These agents simulate human participants, while a Meta-Agent, called ``Guest'', oversees the session, intervening when necessary to promote balanced engagement.
+
+The framework consists of three main components:
+\begin{itemize}
+    \item \textbf{TalkingHeads Simulation}: An agent-based model (ABM) developed at Warsaw University that serves as the foundational layer, modeling dynamic interactions among participants in a collaborative setting.
+    \item \textbf{GuestRL Environment}: Built on top of the TalkingHeads simulation, this environment integrates reinforcement learning (RL) to allow the Meta-Agent to adapt its interventions based on equality-driven objectives and other nuanced social metrics.
+    \item \textbf{VRUnited Framework}: A planned extension designed to replace the TalkingHeads simulation with a virtual reality (VR) interface, providing immersive, real-time interactions while retaining compatibility with the existing GuestRL setup by integrating into the VRUnited system  \cite{10309197}.
+    % TODO as doron for [ref Ramon paper]
+\end{itemize}
+
+\begin{figure}[ht!]
+    \centering
+    \includegraphics[width=0.45\textwidth]{env_img/VisualDemoProcessing.png}
+    \includegraphics[width=0.45\textwidth]{env_img/VisualDemoPython.png}
+    \caption{Visualization of the \textit{GuestRL} environment, showing the simulated discussion participants and Meta-Agent interactions. The environment includes three agents (in red in the left figure) and the Guest (in the top left corner). The simulation calculates the gaze direction and the phoneme count for each agent. (Courtesy Wojciech Borkowski, Warsaw University)}
+    \label{fig:env_images}
+\end{figure}
+
+\subsection{Environment Description}
+
+The \textit{GuestRL} environment is a custom reinforcement learning environment designed to simulate multi-agent conversations. It consists of a \textbf{Meta-Agent} and multiple \textbf{participants} (in our experiments, three agents). The simulation progresses in discrete time steps, where each step corresponds to approximately \(\frac{1}{3}\) of a second in real time. For example, three steps represent one simulated second of conversation.  
+
+At each step, participant agents may speak, and their speech is measured in phonemes. This phoneme count is later used to compute the reward for the Meta-Agent.  
+
+The role of the Meta-Agent is to intervene in the session between participants using a set of eight specific actions. Its primary goal is to guide the conversation toward balanced and equal participation among the agents and reducing inequality.
+
+\subsubsection{Meta-Agent Action Space}
+
+The Meta-Agent operates within a small discrete action space, where each action represents an intervention tool used to gently steer the conversation:
+
+\begin{itemize}
+    \item \textbf{stare\_at \textless target id\textgreater}: The Meta-Agent directs visual attention toward a specific participant, subtly prompting them to contribute or continue speaking.
+    \item \textbf{encourage \textless target id\textgreater}: The Meta-Agent provides verbal encouragement to a chosen agent, signaling positive reinforcement. This action is only taken if no other agent is speaking in that step.
+    \item \textbf{wait}: The Meta-Agent maintains the current state without any new intervention, allowing the discussion to evolve naturally.
+    \item \textbf{stop}: The Meta-Agent halts all actions, effectively pausing its influence and letting the conversation flow without interference.
+\end{itemize}
+
+\subsubsection{Simulation Parameters}
+
+The simulation is governed by a set of configurable parameters that define agent behavior and environmental constraints:
+
+\begin{itemize}
+    \item \textbf{LETTERS\_p\_STEP}: Maximum number of phonemes an agent can speak per step (default: 3), determining speech granularity.
+    
+    \item \textbf{TALK\_THRES\_MIN}: The minimum internal activation threshold (ranging from 0.75 to 0.99) that an agent must surpass in order to start speaking. Higher thresholds cause agents to hesitate more and require stronger motivation or encouragement, while lower thresholds make spontaneous speech more likely.
+    
+    \item \textbf{BRAKING\_FACTOR}: Controls the rate at which an agent’s internal motivation to speak (referred to as "tension") decreases over time. A lower braking factor results in prolonged speaking behavior, while a higher braking factor causes the agent to stop talking sooner.
+    
+    \item \textbf{FEEDBACK\_FACTOR}: Determines the probability that a non-speaking agent will provide short, supportive or critical feedback utterances (such as ``yes,'' ``no,'' or ``wow'') directed at the current speaker. At each simulation step, for each non-speaking participant, a random draw is compared to this factor; if the draw is lower, feedback is emitted. These short utterances influence the current speaker’s internal state by conditionally lowering their speaking threshold, thereby increasing their likelihood to continue speaking. In this way, \texttt{FEEDBACK\_FACTOR} directly shapes conversational flow and social responsiveness, simulating realistic backchannel behavior and dynamic social cues in group discussions.
+
+    
+    \item \textbf{SOFTRESET}: Controls whether a partial reset is applied between episodes (default: 1). When enabled, the environment retains each agent’s internal states and behavioral characteristics across episodes, instead of fully reinitializing them. This allows for more consistent behavior, making it easier to observe the effects of the Meta-Agent's interventions over time. \texttt{SOFTRESET} is especially useful for testing and debugging, as it provides stable conditions and reduces randomness during controlled experiments.
+
+\end{itemize}
+
+
+
+% TODO - old exaplain of the simulation 
+% In the GuestRL environment, the Meta-Agent has a few simple discrete actions:
+% \begin{itemize}
+%     \item \textbf{'stare\_at \textless target name or id \textgreater'}: The Guest focuses on a particular agent, visually directing attention toward them.
+%     \item \textbf{'encourage \textless target name or id \textgreater'}: The Guest emits encouraging text directed at a specific agent, provided no other agent is speaking at that step.
+%     \item \textbf{'wait'}: Maintains the current state without introducing any new action.
+%     \item \textbf{'stop'}: Commands the Guest to cease all actions, effectively pausing its intervention.
+% \end{itemize}
+
+% \subsection{Simulation}
+
+% The \textit{GuestRL} environment is governed by a set of configurable parameters that define its behavior and constraints. The primary simulation parameters include:
+
+% \begin{itemize}
+%     \item \textbf{LETTERS\_p\_STEP}: Maximum number of phonemes an agent can speak per step (default: 3). Controls speech granularity.
+    
+%     \item \textbf{TALK\_THRES\_MIN}: The minimum threshold required for an agent to begin speaking, with a range of 0.75 to 0.99. This parameter affects hesitation or activation for speech.
+    
+%     \item \textbf{BRAKING\_FACTOR}: Rate at which internal tension decreases per step. This impacts speaker persistence or reluctance.
+    
+%     \item \textbf{FEEDBACK\_FACTOR}: The probability that an agent provides feedback in a minimal three-letter speech step. Determines how frequently agents give feedback.
+    
+%     \item \textbf{PROSOCIAL\_MAX}: Maximum value controlling prosocial behavior. A value of 0 disables prosocial behaviors. This can influence cooperative tendencies.
+ 
+    
+%     \item \textbf{SOFTRESET}: A partial reset feature that retains agent-specific characteristics across resets (default: 1). This allows for continuity in learning rather than full reinitialization.
+% \end{itemize}
+
+\subsection{Challenges in Simulation and Learning}
+
+The \textit{GuestRL} environment presents a complex learning problem due to the delayed and probabilistic nature of social interactions, requiring the Meta-Agent to develop long-term, structured strategies. Unlike classical reinforcement learning environments, where actions lead to immediate and deterministic state changes, in \textit{GuestRL}, actions may only influence participant behavior after several steps, and even then, only with a certain probability.  
+
+More concretely, the environment poses two significant challenges:  
+\begin{enumerate}
+    \item \textbf{Temporal credit assignment:}  
+    In traditional RL tasks, an agent takes an action, and the result is observed immediately or after a predictable short delay. In contrast, in \textit{GuestRL}, the Meta-Agent may encourage a specific participant (for example, \textit{encourage agent 1} at time \(t\)), but this does not guarantee that agent 1 will speak in the following step. The effect may occur several steps later, and only with probability \(p\). As a result, the RL algorithm must learn to assign credit for observed outcomes to actions taken in the past, despite the delay and stochasticity. This temporal credit assignment problem makes learning substantially more difficult, as the agent must connect distant consequences to prior interventions.  
+
+    \item \textbf{Learning specific sequences of actions:}  
+    The environment further enforces a structural constraint: effective influence on the agents requires not just single actions but carefully constructed sequences of actions. For instance, repeatedly encouraging agent 1 every step is ineffective and will not produce any behavioral change. Instead, the Meta-Agent must follow an ideal action pattern: select a single action (either \textit{stare\_at} or \textit{encourage}), then follow with several \textit{wait} actions, allowing time for the agents to respond, and finally execute a \textit{stop} action to reset the intervention context. This structured sequence (action $\rightarrow$ wait $\rightarrow$ stop) represents the most efficient intervention strategy. The RL agent must learn these patterns through trial and error, adding another layer of complexity to the learning problem.  
+\end{enumerate}
+
+\begin{tikzpicture}[node distance=1.0cm, every node/.style={font=\small}]
+    % Timeline
+    \draw[->] (0,0) -- (12,0) node[right] {Time};
+
+    % Actions
+    \node (a1) at (1,0) [circle, draw, fill=blue!20] {$a_1$};
+    \node (wait1) at (2,0) [circle, draw, fill=gray!20] {wait};
+    \node (wait2) at (3.2,0) [circle, draw, fill=gray!20] {wait};
+    \node (stop) at (4.4,0) [circle, draw, fill=red!20] {stop};
+    \node (a2) at (7,0) [circle, draw, fill=blue!20] {$a_2$};
+    \node (wait3) at (8,0) [circle, draw, fill=gray!20] {wait};
+    \node (stop2) at (9.2,0) [circle, draw, fill=red!20] {stop};
+
+    % Delayed effects
+    \node (eff1) at (4,2.5) [rectangle, draw, fill=green!20] {Effect of $a_1$};
+    \node (eff2) at (10,2.5) [rectangle, draw, fill=green!20] {Effect of $a_2$};
+
+    % Arrows for effects
+    \draw[->, thick] (a1) -- (eff1);
+    \draw[->, thick] (a2) -- (eff2);
+
+    % Annotations
+    \node at (2.5,-1.2) [text width=5cm, align=center] {Action sequences require\\intervention $\rightarrow$ wait $\rightarrow$ stop};
+    \node at (9,-1.5) [text width=7cm, align=center] {Effects do not appear immediately;\\they occur with probability $p$ after several steps.};
+
+    % Legend
+    \begin{scope}[shift={(0,-3)}]
+        \draw[fill=blue!20] (0,0) rectangle (0.7,0.4);
+        \node at (3.3,0.2) {Intervention action ($a_1$, $a_2$)};
+        \draw[fill=gray!20] (0,-0.7) rectangle (0.7,-0.3);
+        \node at (2,-0.5) {Wait action};
+        \draw[fill=red!20] (0,-1.4) rectangle (0.7,-1.0);
+        \node at (2,-1.2) {Stop action};
+        \draw[fill=green!20] (0,-2.1) rectangle (0.7,-1.7);
+        \node at (2.2,-1.9) {Delayed effect};
+    \end{scope}
+
+\end{tikzpicture}
+
+
+
+%This adds a layer of complexity, requiring the reinforcement learning model to develop a deeper understanding of cause-and-effect relationships over extended time horizons. Addressing this challenge is central to the effectiveness of the GuestRL framework in learning meaningful intervention strategies.
+
+
+
+
+% \subsubsection{Observation Table and Simulation Feedback}
+
+% The environment operates through an observation table, which updates in each step and guides the Meta-Agent’s actions. The \texttt{SimStep} and \texttt{SimReset} functions provide this table, containing state data for each participant. The \texttt{SimReset} function initiates a session, returning the initial observation table, while \texttt{SimStep} returns a tuple: the updated observation table, the reward for that step, and a termination flag.
+
+% The observation table is structured as follows:
+% \begin{itemize}
+%     \item Each row represents one agent’s state, with the final row reserved for the Meta-Agent itself.
+%     \item Each row contains values indicating the \textbf{agent’s position} on the x- and y-axes, their \textbf{gaze direction} (in radians, 2D birds-eye view), and the \textbf{number of phonemes} they have uttered during that step.
+% \end{itemize}
+
+\subsubsection{Observation Table and Simulation Feedback}
+
+At each timestep \( t \), the environment provides an \textbf{observation table}, denoted as \( O_t \), which contains relevant state information for each participant. The Meta-Agent receives this observation and selects an action \( a_t \), which influences the simulation. 
+
+The environment operates as follows:  
+
+\begin{itemize}
+    \item At the beginning of a session, the environment initializes and returns the initial observation table \( O_0 \).
+    \item At each timestep \( t \), the Meta-Agent selects an action \( a_t \), and the environment updates accordingly, returning a tuple:
+\end{itemize}
+
+\begin{equation}
+    (O_{t+1}, r_t, d_t)
+\end{equation}
+
+where:
+\begin{itemize}
+    \item \( O_{t+1} \) is the updated observation table containing the new state information,
+    \item \( r_t \) is the reward assigned based on the effectiveness of the previous action,
+    \item \( d_t \) is a termination flag indicating whether the episode has ended.
+\end{itemize}
+
+% [Remove explain before ]Unlike classical reinforcement learning environments, where actions produce immediate and deterministic state transitions, the \textit{GuestRL} environment introduces more complex and delayed effects. The impact of an action may unfold gradually rather than instantaneously. For example, if the Meta-Agent encourages a participant to speak, the response may not be immediate but rather influenced by prior interactions and ongoing social dynamics. This creates an additional challenge, requiring the agent to learn effective sequences of actions over time rather than relying on single-step decision-making.
+
+% [will save this to the thesis paper] A more detailed implementation of the environment functions is provided in Section \textbf{[X]}.
+
+
+\paragraph{Structure of the Observation Table}
+
+The observation table is defined as a matrix \( O_t \in \mathbb{R}^{(N+1) \times D} \), where:
+\begin{itemize}
+    \item \( N \) represents the number of agents,
+    \item The final row \( (N+1) \) corresponds to the \textbf{Meta-Agent},
+    \item Each row contains \( D \) state values describing the agent's current state.
+\end{itemize}
+
+For each agent \( i \), the state vector at timestep \( t \) is defined as:
+\begin{equation}
+    s^i_t = \begin{bmatrix} x^i_t, y^i_t, \theta^i_t, p^i_t \end{bmatrix}
+\end{equation}
+where:
+\begin{itemize}
+    \item \( x^i_t, y^i_t \in \mathbb{R} \) represent the agent’s \textbf{position} in a two-dimensional plane,
+    \item \( \theta^i_t \in [-\pi, \pi] \) represents the agent’s \textbf{gaze direction} in radians,
+    \item \( p^i_t \in \mathbb{N} \) represents the \textbf{number of phonemes} spoken by the agent during timestep \( t \).
+\end{itemize}
+
+Thus, the full observation matrix at timestep \( t \) is given by:
+\begin{equation}
+    O_t =
+    \begin{bmatrix}
+    x^1_t & y^1_t & \theta^1_t & p^1_t \\
+    x^2_t & y^2_t & \theta^2_t & p^2_t \\
+    \vdots & \vdots & \vdots & \vdots \\
+    x^N_t & y^N_t & \theta^N_t & p^N_t \\
+    x^{M}_t & y^{M}_t & \theta^{M}_t & p^{M}_t  % Meta-Agent row
+    \end{bmatrix}
+\end{equation}
+where \( M = N+1 \) corresponds to the Meta-Agent.
+
+In our research we assume the agents are stationary so we will most likely ignore the positions. We will start by focusing on the number of phonemes, and later on move to scenarios that take into account gaze direction. 
+
+\subsubsection{Reward Function}
+
+Initially, the reward function in \textit{GuestRL} is based on \( 1 - \textbf{Gini index} \) of the phoneme counts among participants, aiming to maximize equality. The Gini index is a measure of statistical dispersion  \cite{gini1921}, commonly used to assess inequality. In this context, it quantifies disparities in speaking time among participants, with lower values indicating more equal engagement. By using \( 1 - G \), the reward function encourages balanced participation, as higher reward values correspond to greater equality.
+
+The Gini index for \( n \) participants is calculated as follows:
+
+\[
+G = \frac{\sum_{i=1}^{n} \sum_{j=1}^{n} |x_i - x_j|}{2n \sum_{i=1}^{n} x_i}
+\]
+
+and the reward is defined as:
+
+\[
+R = 1 - G
+\]
+
+where:
+\begin{itemize}
+    \item \( x_i \) is the phoneme count (or speaking time) for participant \( i \) at timestep \( t \),
+    \item \( n \) is the total number of participants,
+    \item \( R \) is the reward encouraging equality.
+\end{itemize}
+
+An essential part of this research involves experimenting with and identifying the most effective reward structure for achieving balanced engagement with minimal intervention, potentially extending the reward function to include additional social metrics.
+
+
+% As the research progresses, alternative reward metrics will be explored to enhance fairness and natural flow in interactions. These may include:
+% \begin{itemize}
+%     \item \textbf{Silence Ratio}: Encourages reduced interruptions by ``punishing'' moments when participants are speaking simultaneously.
+%     \item \textbf{Shannon’s Entropy of Proportions} \cite{shannon1948}: Promotes balanced participation by assessing the distribution of speaking time among participants.
+%     \item \textbf{Shannon’s Entropy of Transitions}: Reflects smoothness in turn-taking dynamics, discouraging abrupt shifts in engagement.
+% \end{itemize}
+
+This iterative approach to defining the reward function aims to provide a flexible framework where various social metrics, grounded in social science research, can be explored and assessed. Rather than striving for a single optimal solution, the goal is to enable the evaluation of different metrics to drive balanced yet realistic interactions. This framework seeks to align with objectives such as fairness, equality, and minimal intervention in a multi-user discussion setting, while accommodating the complexity and variability of social dynamics.
+
+\subsection{Implementation}
+
+The research will be conducted using the \textit{Gymnasium} framework (formerly OpenAI Gym) \cite{gymnasium2022}, which provides a flexible platform for simulating and evaluating reinforcement learning (RL) models. The key tools employed in this study include:  
+
+\begin{itemize}
+    \item \textbf{Python} for implementing the environment and RL algorithms.
+    \item \textbf{Stable Baselines3 (SB3)} \cite{stableBaselines3} for implementing Proximal Policy Optimization (PPO), Deep Q-Network (DQN), and Soft Actor-Critic (SAC) algorithms.
+    \item \textbf{TensorFlow} or \textbf{PyTorch} as backend frameworks for training and optimizing RL models.
+    \item \textbf{Gymnasium} for simulating the agent-based session environment and evaluating policy performance.
+\end{itemize}
+
+
+% \section{Preliminary Results}
+% Some preliminary experiments were conducted using the custom Gym environment, \textit{GuestRL}. These initial tests were aimed at assessing whether the environment and RL setup functioned as intended and to explore the basic behavior of the meta-agent in maintaining equality among participants. 
+
+% The RL algorithms, including \textit{Proximal Policy Optimization (PPO)} and \textit{Deep Q-Network (DQN)}\cite{ppo2017, mnih2013playingatarideepreinforcement}, were applied to the environment.
+
+% The preliminary results of the \textit{GuestRL} environment are divided into three main sections: actions, phoneme counts, and rewards. Each section highlights different aspects of the Meta-Agent’s learning process and its impact on the environment.
+
+% \subsection{Action Analysis}
+
+% This section focuses on the actions taken by the Meta-Agent. We present eight graphs, one for each possible action: \texttt{stare\_at 0}, \texttt{stare\_at 1}, \texttt{stare\_at 2}, \texttt{encourage 0}, \texttt{encourage 1}, \texttt{encourage 2}, \texttt{stop}, and \texttt{wait}. 
+
+% Initially, during the first 2 million steps, the agent’s actions appear random, with no discernible preference for any specific action. However, as training progresses, the Meta-Agent begins to favor the \texttt{stop} action, which becomes the most frequently used action. This behavior suggests that the agent has learned to minimize unnecessary interventions by defaulting to \texttt{stop}, indicating some understanding of efficient engagement regulation.
+
+% \begin{figure}[!htb]
+% \minipage{0.49\textwidth}
+% \includegraphics[width=\linewidth]{charts/Section-2-Panel-0-a9lbmfzmt}
+% \caption{stare at 1}
+% \endminipage\hfill
+% \minipage{0.49\textwidth}
+% \includegraphics[width=\linewidth]{charts/Section-2-Panel-1-z68jz840f}
+% \caption{wait}
+% \endminipage
+% \end{figure}
+
+% \begin{figure}[!htb]
+% \minipage{0.49\textwidth}
+% \includegraphics[width=\linewidth]{charts/Section-2-Panel-2-c0693nxi3}
+% \caption{stare at 2}
+% \endminipage\hfill
+% \minipage{0.49\textwidth}
+% \includegraphics[width=\linewidth]{charts/Section-2-Panel-3-rrld4teaj}
+% \caption{encourage 1}
+% \endminipage
+% \end{figure}
+
+% \begin{figure}[!htb]
+% \minipage{0.49\textwidth}
+% \includegraphics[width=\linewidth]{charts/Section-2-Panel-4-gum2ed22x}
+% \caption{stop}
+% \endminipage\hfill
+% \minipage{0.49\textwidth}
+% \includegraphics[width=\linewidth]{charts/Section-2-Panel-5-93h5g43nm}
+% \caption{encourage 0}
+% \endminipage
+% \end{figure}
+
+% \begin{figure}[!htb]
+% \minipage{0.49\textwidth}
+% \includegraphics[width=\linewidth]{charts/Section-2-Panel-6-4x4zfm8k8}
+% \caption{encourage 2}
+% \endminipage\hfill
+% \minipage{0.49\textwidth}
+% \includegraphics[width=\linewidth]{charts/Section-2-Panel-7-ppjuct2yq}
+% \caption{stare at 0}
+% \endminipage
+% \end{figure}
+
+% \subsection{Phoneme Count Analysis}
+
+% We analyze the phoneme counts for each agent in the session, visualized through three graphs: \texttt{phoneme\_counts\_0}, \texttt{phoneme\_counts\_1}, and \texttt{phoneme\_counts\_2}. 
+
+% The results show that the agents exhibit relatively balanced speaking times, with similar overall trends in engagement. However, the exact amount of speech varies slightly between agents, indicating that while the Meta-Agent achieves some degree of equality, there is still room for improvement to ensure complete balance. Further refinements in the reward function and training dynamics are planned to address this.
+
+% \begin{figure}[!htb]
+% \minipage{0.35\textwidth}
+% \includegraphics[width=\linewidth]{charts/Section-4-Panel-0-zt8jwyx3j}
+% \caption{counts 0}
+% \endminipage
+% \minipage{0.35\textwidth}
+% \includegraphics[width=\linewidth]{charts/Section-4-Panel-1-o8ioufpue}
+% \caption{counts 1}
+% \endminipage
+% \minipage{0.35\textwidth}
+% \includegraphics[width=\linewidth]{charts/Section-4-Panel-2-2d96ih1ix}
+% \caption{counts 2}
+% \endminipage
+% \end{figure}
+
+% \subsection{Reward Analysis}
+
+% The reward function, based on \( 1 - \textbf{Gini index} \), aims to maximize equality in engagement. However, the current results indicate that the reward remains consistently at 1 throughout training. This suggests that the mechanism may be overestimating equality or failing to capture nuanced disparities in engagement. 
+
+% To address this, ongoing work is focused on moderating the reward function to make it more sensitive and accurate. Adjustments are being made to incorporate additional metrics or to refine the calculation of equality to better reflect the session dynamics.
+
+% \begin{figure}[!htb]
+% \minipage{1\textwidth}
+% \includegraphics[width=\linewidth]{charts/Section-6-Panel-0-aumx8pk1l}
+% \caption{reward}
+% \endminipage
+% \end{figure}
+% [plot by wandb \cite{wandb}]
+
+
+\section{Preliminary Results}
+
+To evaluate the feasibility of training reinforcement learning (RL) agents in the \textit{GuestRL} environment, we conducted multiple experiments using \textbf{Proximal Policy Optimization (PPO)} and \textbf{Deep Q-Network (DQN)} \cite{ppo2017, mnih2013playingatarideepreinforcement}. The primary objective was to determine whether the Meta-Agent could learn to regulate participation among agents.
+
+%Our initial results indicate that training in this environment is challenging, with early-stage agents exhibiting random behavior. However, over time, we observed signs of control emerging, particularly in the form of encouraging a specific participant to speak more frequently. This suggests that the Meta-Agent is beginning to influence the interaction dynamics.
+
+
+Figure \ref{fig:phoneme_counts} presents phoneme counts over multiple runs, illustrating how speech distribution evolved across participants during training. [missing details!! actions, simulation parameters, RL hyperparameters, metric/reward]
+
+[also results not clear - is this one run 5 first episodes? or 5 runs first episode? what do you want to show?]
+\begin{figure}[!htb]
+    \centering
+    \includegraphics[width=\textwidth]{result_p2/r1.png}
+    \caption{Phoneme counts over time for multiple RL training. Each panel represents a separate episode, showing the cumulative phoneme counts for three participants.}
+    \label{fig:phoneme_counts}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\textwidth]{result_p2/r2.png}
+    \caption{Visualization of the Meta-Agent's action sequence over time. The y-axis shows the discrete action value, and the x-axis represents simulation steps. An action value of 3 corresponds to the \textit{stare\_at agent 1} action, 1 represents the \textit{stop} action, and 0 indicates the \textit{wait} action. This structure allows the environment to respond naturally to the intervention, highlighting the necessity of temporal action planning in \textit{GuestRL}.}
+    \label{fig:action_sequence_plot}
+\end{figure}
+
+
+
+
+\section{Planned Schedule}
+
+\subsection{Stage 1: Implementation and Training of RL Algorithms (Month 1-6) (October - March}
+This stage focuses on implementing and training existing RL algorithms within the \textit{GuestRL} environment. The key tasks include:
+\begin{itemize}
+    \item Implementing RL algorithms such as PPO, DQN, and SAC using \textit{Stable Baselines3}.
+    \item Training the algorithms on the multi-agent session environment.
+    \item Tuning hyperparameters for optimal performance.
+\end{itemize}
+\textbf{Milestone:} Successful training of the RL agent with initial results on equality and minimal intervention.
+
+\subsection{Stage 2: Evaluation and Metrics Development (Month 7-9) (April - June}
+
+Once the RL models are trained, they will undergo iterative evaluations based on key performance metrics, such as participation balance, equality, and intervention frequency. This iterative approach allows for incremental adjustments to the models, ensuring that the training objectives are aligned with the desired social dynamics. This stage includes:
+\begin{itemize}
+    \item Developing and refining metrics to measure equality, participation balance, and intervention frequency.
+    \item Iteratively evaluating the performance of the trained models using these metrics, making adjustments as necessary to optimize the Meta-Agent’s behavior.
+\end{itemize}
+
+Following the initial evaluation, the research will expand to include advanced simulations that introduce additional social metrics, such as entropy in turn-taking and conflict scenarios, to further challenge the Meta-Agent. 
+
+\textbf{Milestone:} Completion of model evaluation with detailed performance metrics from multiple simulation scenarios.
+
+\textbf{Optional Stage: Explorations with VR} - Should human data become available, a final stage will involve testing the Meta-Agent in a VR setting with human participants, replacing simulated agents. This stage would enable a comprehensive evaluation of the Meta-Agent's adaptability and effectiveness in a real-world, multi-user environment.
+
+
+\subsection{Stage 4: Final Report (Month 10-11) (July - August)}
+In the final stage, a comprehensive analysis of the results will be conducted. This includes:
+\begin{itemize}
+    \item Preparing the final analysis of the experimental results.
+    \item Writing the thesis report.
+    \item Proposing directions for future research, including testing the system with real participants in a VR setting.
+\end{itemize}
+\textbf{Milestone:} Submission of the final thesis report and recommendations for further work.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
