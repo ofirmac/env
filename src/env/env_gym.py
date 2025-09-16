@@ -273,16 +273,7 @@ class GuestEnv(gym.Env):
                     candidates.append(i)
 
             if len(candidates) > 0:
-                #random choise 
-                energies = self.energy
-                agents = [0, 1, 2]
-
-                # Normalize to probabilities
-                total = sum(energies)
-                probs = [e / total for e in energies]
-
-                # Sample one agent
-                chosen = random.choices(agents, weights=probs, k=1)[0]
+                chosen = self._random_sample(self.energy)
                 # Choose speaker with highest energy
                 self.current_speaker = chosen
                 # self.current_speaker = candidates[np.argmax(self.energy[candidates])]
@@ -433,3 +424,34 @@ class GuestEnv(gym.Env):
             rng = np.random.default_rng(42)
             self.rng = rng
         return int(rng.choice(len(probs), p=probs))
+        self.n = n_agents
+        self.rng = np.random.default_rng(seed)
+    
+    def _random_sample(self, energy, agents = [0, 1, 2])-> int :
+        #random choise 
+        energies = energy
+        agents = agents
+
+        # Normalize to probabilities
+        total = sum(energies)
+        probs = [e / total for e in energies]
+
+        # Sample one agent
+        choice = random.choices(agents, weights=probs, k=1)[0]
+        return choice
+    def _uniform_sample(self, energies, agents = [0, 1, 2], tau=2.0, seed=45)-> int :
+        rng = np.random.default_rng(seed)
+
+        energies = np.array(energies, dtype=float)
+        total = energies.sum()
+
+        if total <= 0:
+            # fallback: uniform choice if no energy
+            return rng.choice(agents)
+
+        # normalize to probabilities
+        probs = energies / total
+
+        # sample one agent
+        choice = rng.choice(agents, p=probs)
+        return int(choice)
