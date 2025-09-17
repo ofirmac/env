@@ -9,6 +9,7 @@ from gymnasium import spaces
 from loguru import logger
 import sys
 import random
+from typing import Optional
 
 logger.remove()
 logger.add(
@@ -129,6 +130,17 @@ class GuestEnv(gym.Env):
         self.gini_history = []
         self.env_reward = []
         self.phoneme_history = []
+        # === SPEAK-style selection (energy-as-baseline) ===
+        self.speak_d: float = 0.79   # immediate boost after speaking
+        self.speak_b: float = 0.79   # exponential decay rate by missed turns
+        self.speak_alpha: float = 0.50  # mix: alpha*baseline_energy + (1-alpha)*momentary
+        self.speak_eps: float = 0.00    # optional ε-exploration (0 = off)
+        self.num_agents = 3
+        # per-agent “missed since last spoke” counters
+        self.speak_skipped = np.zeros(self.num_agents, dtype=int)
+
+        # if you track current speaker; use -1 when none
+        self.current_speaker: int = getattr(self, "current_speaker", -1)
         if logfile:
             logger.add("guest_{time:YYYY-MM-DD}.log", enqueue=True)
 
@@ -244,13 +256,13 @@ class GuestEnv(gym.Env):
         logger.debug(f"{self.current_speaker=}")
         if 1 <= action <= 3:  # stare_at
             target = action - 1
-            effect = 0.5 * (1 - self.imbalance_factor)
+            effect = 0.9 * (1 - self.imbalance_factor)
             self.energy[target] = min(1.0, self.energy[target] + effect)
         elif 4 <= action <= 6:  # encourage
             target = action - 4
             # self._apply_encourage(target)
             if self.current_speaker == -1:
-                effect = 0.6 * (1 - self.imbalance_factor)
+                effect = 0.9 * (1 - self.imbalance_factor)
                 self.energy[target] = min(1.0, self.energy[target] + effect)
 
         # Agent-specific energy dynamics
@@ -273,9 +285,11 @@ class GuestEnv(gym.Env):
                     candidates.append(i)
 
             if len(candidates) > 0:
-                chosen = self._random_sample(self.energy)
+                probs = self._speak_probs()
+                chosen = self._sample_from_probs(probs)   # returns an int
                 # Choose speaker with highest energy
-                self.current_speaker = chosen
+                c = self._random_sample(self.energy)
+                self.current_speaker = c
                 # self.current_speaker = candidates[np.argmax(self.energy[candidates])]
                 logger.debug(f"{self.current_speaker=}")
                 self.speaking_time[self.current_speaker] = 0
@@ -414,18 +428,22 @@ class GuestEnv(gym.Env):
             return u / u.sum()
         return exps / Z
 
-    def _sample_from_probs(self, probs: np.ndarray) -> int:
-        """
-        Draw a single index according to probs (shape (N,)).
-        """
-        rng = getattr(self, "rng", None)
-        if rng is None:
-            # safety, but you already set rng in __init__
-            rng = np.random.default_rng(42)
-            self.rng = rng
-        return int(rng.choice(len(probs), p=probs))
-        self.n = n_agents
-        self.rng = np.random.default_rng(seed)
+    # def _sample_from_probs(self, probs: np.ndarray) -> int:
+    #     """
+    #     Draw a single index according to probs (shape (N,)).
+    #     """
+    #     rng = getattr(self, "rng", None)
+    #     if rng is None:
+    #         # safety, but you already set rng in __init__
+    #         rng = np.random.default_rng(42)
+    #         self.rng = rng
+    #     return int(rng.choice(len(probs), p=probs))
+    #     self.n = n_agents
+    #     self.rng = np.random.default_rng(seed)
+    def _sample_from_probs(self, probs: np.ndarray, seed: Optional[int] = None) -> int:
+        rng = np.random.default_rng(seed)
+        agents = np.arange(len(probs))
+        return int(rng.choice(agents, p=probs))
     
     def _random_sample(self, energy, agents = [0, 1, 2])-> int :
         #random choise 
@@ -455,3 +473,86 @@ class GuestEnv(gym.Env):
         # sample one agent
         choice = rng.choice(agents, p=probs)
         return int(choice)
+    def _eligible_mask_for_turn(self) -> np.ndarray:
+        """Boolean mask of agents allowed to take the floor this step."""
+        energies = np.asarray(self.energy, dtype=float)
+        # Example rule: everyone with non-negative energy is eligible
+        mask = np.isfinite(energies) & (energies >= 0.0)
+        return mask
+    def _speak_probs(self) -> np.ndarray:
+        """
+        Compute next-speaker probabilities using:
+        baseline = normalized energy
+        momentary = d * exp(-b * skipped_i)
+        raw = alpha * baseline + (1-alpha) * momentary
+        apply constraints (eligibility, no immediate self-follow)
+        normalize to probs
+        """
+        N = self.num_agents
+        energies = np.asarray(self.energy, dtype=float)
+        energies = np.clip(np.nan_to_num(energies, nan=0.0), 0.0, None)
+
+        # --- 1) baseline from energies (normalize) ---
+        total = energies.sum()
+        if total <= 0.0:
+            baseline = np.full(N, 1.0 / N)         # fallback: uniform baseline
+        else:
+            baseline = energies / total
+
+        # --- 2) momentary boost with exponential decay by missed turns ---
+        t = self.speak_skipped
+        momentary = self.speak_d * np.exp(-self.speak_b * t)   # shape (N,)
+
+        # --- 3) mix baseline and momentary ---
+        raw = self.speak_alpha * baseline + (1.0 - self.speak_alpha) * momentary
+
+        # --- 4) constraints: eligibility + forbid immediate self-follow ---
+        mask = self._eligible_mask_for_turn()
+        if self.current_speaker is not None and self.current_speaker >= 0:
+            # The paper treats a whole utterance as a unit; forbid immediate re-pick
+            mask[self.current_speaker] = False
+
+        raw = np.where(mask, raw, 0.0)
+
+        # --- 5) normalize to probabilities ---
+        Z = raw.sum()
+        if not np.isfinite(Z) or Z <= 0.0:
+            # fallback: uniform over eligible agents
+            u = mask.astype(float)
+            u_sum = u.sum()
+            if u_sum <= 0:
+                return np.full(N, 1.0 / N)
+            return u / u_sum
+        return raw / Z
+
+    # def _speak_probs(self) -> np.ndarray:
+    #     """
+    #     Compute next-speaker probabilities with energy as baseline propensity.
+    #     """
+    #     energies = np.array(self.energy, dtype=float)
+    #     energies = np.clip(energies, 0.0, None)
+    #     if energies.sum() == 0:
+    #         energies[:] = 1.0   # fallback if everyone has 0 energy
+
+    #     # 1) baseline from energies (normalized)
+    #     pi = energies / energies.sum()
+
+    #     # 2) momentary boost with exponential decay
+    #     t = self.speak_skipped
+    #     momentary = self.speak_d * np.exp(-self.speak_b * t)
+
+    #     # 3) mix baseline and momentary
+    #     raw = self.speak_alpha * pi + (1.0 - self.speak_alpha) * momentary
+
+    #     # 4) apply constraints
+    #     mask = self._eligible_mask_for_turn()
+    #     if self.current_speaker != -1:
+    #         mask[self.current_speaker] = False
+    #     raw = np.where(mask, raw, 0.0)
+
+    #     # 5) normalize
+    #     Z = raw.sum()
+    #     if Z <= 0:
+    #         u = mask.astype(float)
+    #         return u / max(1.0, u.sum())
+    #     return raw / Z
