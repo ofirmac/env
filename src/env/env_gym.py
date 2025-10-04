@@ -57,7 +57,7 @@ class GuestEnv(gym.Env):
         energy_imbalance: float = 0.0,
         reward_shaping=True,
         logfile=False,
-        encourage_base_effect: float = 0.3,
+        encourage_base_effect: float = 0.9,
         encourage_duration_steps: int = 10,
         encourage_stack: bool = True,
     ):  # 0.0 to 1.0, controls initial energy imbalance
@@ -256,14 +256,14 @@ class GuestEnv(gym.Env):
         logger.debug(f"{self.current_speaker=}")
         if 1 <= action <= 3:  # stare_at
             target = action - 1
-            effect = 0.9 * (1 - self.imbalance_factor)
+            effect = 0.1 * (1 - self.imbalance_factor)
             self.energy[target] = min(1.0, self.energy[target] + effect)
         elif 4 <= action <= 6:  # encourage
             target = action - 4
-            # self._apply_encourage(target)
-            if self.current_speaker == -1:
-                effect = 0.9 * (1 - self.imbalance_factor)
-                self.energy[target] = min(1.0, self.energy[target] + effect)
+            self._apply_encourage(target)
+            # if self.current_speaker == -1:
+            #     effect = 0.5 * (1 - self.imbalance_factor)
+            #     self.energy[target] = min(1.0, self.energy[target] + effect)
 
         # Agent-specific energy dynamics
         for i in range(3):
@@ -352,8 +352,8 @@ class GuestEnv(gym.Env):
 
     def _apply_encourage(self, target: int) -> None:
         """Apply a temporary encourage buff to `target`."""
-        if self.current_speaker != -1:
-            return  # your existing logic: only when nobody is speaking
+        # if self.current_speaker != -1:
+        #     return  # your existing logic: only when nobody is speaking
         # base effect scaled by imbalance, then cap to headroom so we can remove it later safely
         effect = self.encourage_base_effect * (1 - self.imbalance_factor)
         headroom = 1.0 - float(self.energy[target])
