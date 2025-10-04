@@ -86,7 +86,14 @@ class CallbackPerEpisode(BaseCallback):
             
             # Phonemes per agent
             for i, phoneme_count in enumerate(phonemes):
-                self.writer.add_scalar(f'Step/Agent_{i}_Phonemes', phoneme_count, global_step)
+                self.writer.add_scalar(f'Step_Phonemes/Agent_{i}_Phonemes', phoneme_count, global_step)
+            
+            self.writer.add_scalars(f'Step_Phonemes/All_Agent_Phonemes',{"Agent-1" : phonemes[0],"Agent-2" : phonemes[1],"Agent-3" : phonemes[2]},global_step)
+
+            for i, energy_count in enumerate(energy):
+                self.writer.add_scalar(f'Step_Energy/Agent_{i}_Energy', energy_count, global_step)
+            
+            self.writer.add_scalars(f'Step_Energy/All_Agent_Energy',{"Agent-1" : energy[0],"Agent-2" : energy[1],"Agent-3" : energy[2]},global_step)
             
             # Gini coefficient
             self.writer.add_scalar('Step/Gini_Coefficient', current_gini, global_step)
@@ -100,7 +107,7 @@ class CallbackPerEpisode(BaseCallback):
             if total_phonemes > 0:
                 for i, phoneme_count in enumerate(phonemes):
                     percentage = (phoneme_count / total_phonemes) * 100
-                    self.writer.add_scalar(f'Step/Agent_{i}_Percentage', percentage, global_step)
+                    self.writer.add_scalar(f'Step_Percentage/Agent_{i}_Percentage', percentage, global_step)
             
             # Check if episode ended
             dones = self.locals.get("dones", [False])
@@ -358,7 +365,7 @@ class CallbackPerEpisode(BaseCallback):
         # Create figure with subplots: 3 rows with different column counts
         fig = plt.figure(figsize=(18, 15))
         # Define a grid specification with 3 rows
-        gs = fig.add_gridspec(3, 3, height_ratios=[1, 1, 1])
+        gs = fig.add_gridspec(4, 3, height_ratios=[1, 1, 1, 1])
         
         # First row: 2 plots (spans 2 columns each)
         ax1 = fig.add_subplot(gs[0, 0:3])  # Rewards plot (spans first 2 columns)
@@ -372,7 +379,7 @@ class CallbackPerEpisode(BaseCallback):
         ax5 = fig.add_subplot(gs[2, 0])    # Wait/Stop actions
         ax6 = fig.add_subplot(gs[2, 1])    # Stare actions
         ax7 = fig.add_subplot(gs[2, 2])    # Encourage actions
-        ax8 = fig.add_subplot(gs[3, 0])    # Energy
+        ax8 = fig.add_subplot(gs[3, :])    # Energy
         
         fig.suptitle(f'Episode {episode_idx + 1} - Step-by-Step Analysis', fontsize=16)
         

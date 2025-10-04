@@ -2,7 +2,7 @@ import os
 import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-from env.env_gym import GuestEnv
+from src.env.env_new_speaker.test_new_speaker_env import GuestEnv
 from callback.guest_callback import TensorBoardMetricsCallback
 from callback.guest_callback_per_episode import CallbackPerEpisode
 

@@ -69,7 +69,7 @@ class GuestEnv(gym.Env):
         self.energy_imbalance = energy_imbalance
         self.reward_shaping = reward_shaping
 
-        # Action space: 8 discrete Guest actions
+        # Action space: 7 discrete Guest actions
         self.action_space = spaces.Discrete(len(ACTIONS))
 
         # Observation space: [energy, speaking_time, total_phonemes] * 3
@@ -79,70 +79,198 @@ class GuestEnv(gym.Env):
             low=0.0, high=1.0, shape=(17,), dtype=np.float32
         )
 
+        # Agent-specific parameters
+        self.agent_params = {
+            0: {  # Reserved agent
+                "min_energy_to_speak": 0.20,
+                "energy_gain": 0.002,
+                "energy_decay": 0.08,
+                "max_speaking_time": 6,
+                "phonemes_per_step": 4,
+            },
+            1: {  # Balanced agent
+                "min_energy_to_speak": 0.55,
+                "energy_gain": 0.010,
+                "energy_decay": 0.05,
+                "max_speaking_time": 8,
+                "phonemes_per_step": 5,
+            },
+            2: {  # Energetic agent
+                "min_energy_to_speak": 0.85,
+                "energy_gain": 0.028,
+                "energy_decay": 0.03,
+                "max_speaking_time": 12,
+                "phonemes_per_step": 6,
+            },
+        }
+
         # temporary buff
         self.encourage_base_effect = float(encourage_base_effect)
         self.encourage_duration_steps = int(encourage_duration_steps)
         self.encourage_stack = bool(encourage_stack)
 
         # active buffs per speaker: list[dict(amount, remaining)]
-        self._encourage_buffs = [[] for _ in range(3)]
-
-        # Agent-specific parameters
-        self.agent_params = {
-            0: {  # Reserved agent
-                "min_energy_to_speak": 0.5,
-                "energy_decay": 0.05,
-                "energy_gain": 0.04,
-                "max_speaking_time": 5,
-                "phonemes_per_step": 3,
-            },
-            1: {  # Balanced agent
-                "min_energy_to_speak": 0.5,
-                "energy_decay": 0.5,
-                "energy_gain": 0.05,
-                "max_speaking_time": 5,
-                "phonemes_per_step": 3,
-            },
-            2: {  # Energetic agent
-                "min_energy_to_speak": 0.9,
-                "energy_decay": 0.2,
-                "energy_gain": 0.06,
-                "max_speaking_time": 5,
-                "phonemes_per_step": 3,
-            },
-        }
+        self._encourage_buffs = [[] for _ in range(len(self.agent_params))]
 
         # State variables
-        self.energy = np.zeros(3)
-        self.speaking_time = np.zeros(3)
-        self.phonemes = np.zeros(3, dtype=int)
+        self.energy = np.zeros(len(self.agent_params))
+        self.speaking_time = np.zeros(len(self.agent_params))
+        self.phonemes = np.zeros(len(self.agent_params), dtype=int)
         self.current_speaker = -1
         self.step_counter = 0
         self.action_stats = np.zeros(len(ACTIONS), dtype=int)
-
-        # Turn-taking selection config
-        self.speaker_tau = (
-            3.0  # temperature: 0<tau; lower = more greedy, higher = more random
-        )
-        self.selection_mode = "softmax"  # keep for future modes ("uniform", "greedy"), currently using softmax
 
         # Imbalance tracking
         self.gini_history = []
         self.env_reward = []
         self.phoneme_history = []
-        # === SPEAK-style selection (energy-as-baseline) ===
-        self.speak_d: float = 0.79   # immediate boost after speaking
-        self.speak_b: float = 0.79   # exponential decay rate by missed turns
-        self.speak_alpha: float = 0.50  # mix: alpha*baseline_energy + (1-alpha)*momentary
-        self.speak_eps: float = 0.00    # optional ε-exploration (0 = off)
-        self.num_agents = 3
-        # per-agent “missed since last spoke” counters
-        self.speak_skipped = np.zeros(self.num_agents, dtype=int)
 
-        # if you track current speaker; use -1 when none
-        self.current_speaker: int = getattr(self, "current_speaker", -1)
         if logfile:
             logger.add("guest_{time:YYYY-MM-DD}.log", enqueue=True)
+
+
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=self.seed)
+        self.rng = np.random.default_rng(self.seed)
+
+        # Initialize with imbalanced energy levels if specified
+        if self.energy_imbalance > 0:
+            base_energy = 0.5
+            self.energy = np.array(
+                [
+                    base_energy * (1 - self.energy_imbalance),
+                    base_energy,
+                    base_energy * (1 + self.energy_imbalance),
+                ]
+            )
+        else:
+            low_val = self.rng.uniform(0.0, 0.05)
+            rest_vals = self.rng.uniform(0.1, 0.5, size=2)
+            self.energy = np.array([low_val, *rest_vals])
+            # self.energy = self.rng.uniform(0.01, 0.6, size=3)
+            logger.info(f"{self.energy=}")
+
+        self.speaking_time = np.zeros(len(self.agent_params))
+        self.phonemes = np.zeros(len(self.agent_params), dtype=int)
+        self.current_speaker = -1
+        self.step_counter = 0
+        self.action_stats[:] = 0
+        self.gini_history = []
+        self.phoneme_history = []
+        self._encourage_buffs = [[] for _ in range(len(self.agent_params))]
+
+        obs = self._get_obs()
+        info = dict(
+            num_of_step_env=self.step_counter,
+            phoneme=self.phonemes.copy(),
+            actions_stats=self.action_stats.copy(),
+            env_reward=0.0,
+            action_number=-1,
+            gini_history=self.gini_history,
+            phoneme_history=self.phoneme_history,
+        )
+        return obs, info
+
+    @logger.catch
+    def step(self, action: int):
+        self.step_counter += 1
+        self.action_stats[action] += 1
+
+        # Process Guest action with imbalance factor
+        logger.debug(f"{self.current_speaker=}")
+        if 1 <= action <= 3:  # stare_at
+            target = action - 1
+            effect = 0.01 * (1 - self.imbalance_factor)
+            self.energy[target] = min(1.0, self.energy[target] + effect)
+        elif 4 <= action <= 6:  # encourage
+            target = action - 4
+            self._apply_encourage(target)
+            # if self.current_speaker == -1:
+            #     effect = 0.5 * (1 - self.imbalance_factor)
+            #     self.energy[target] = min(1.0, self.energy[target] + effect)
+
+        # Agent-specific energy dynamics
+        for i in range(3):
+            params = self.agent_params[i]
+            if i != self.current_speaker:
+                gain = params["energy_gain"] * (1 + self.imbalance_factor * (i - 1))
+                self.energy[i] = min(1.0, self.energy[i] + gain)
+                logger.debug(f"{self.energy[i]}")
+            else:
+                self.energy[i] = max(0.0, self.energy[i] - params["energy_decay"])
+                logger.debug(f"{self.energy[i]}")
+
+        # Speaking dynamics with agent-specific parameters
+        if self.current_speaker == -1:
+            # Find potential speakers based on their individual thresholds
+            candidates = []
+            for i in range(3):
+                if self.energy[i] >= self.agent_params[i]["min_energy_to_speak"]:
+                    candidates.append(i)
+
+            if len(candidates) > 0:
+                # Choose speaker with highest energy
+                choose_speaker = self._random_sample(self.energy)
+                self.current_speaker = choose_speaker
+                # self.current_speaker = candidates[np.argmax(self.energy[candidates])]
+                logger.debug(f"{self.current_speaker=}")
+                self.speaking_time[self.current_speaker] = 0
+        else:
+            # Current speaker continues or yields based on their parameters
+            params = self.agent_params[self.current_speaker]
+            self.speaking_time[self.current_speaker] += 1
+            if (
+                self.speaking_time[self.current_speaker] >= params["max_speaking_time"]
+                or self.energy[self.current_speaker] < params["min_energy_to_speak"]
+            ):
+                self.current_speaker = -1
+
+        # Update phonemes with agent-specific rates
+        if self.current_speaker != -1:
+            self.phonemes[self.current_speaker] += self.agent_params[
+                self.current_speaker
+            ]["phonemes_per_step"]
+
+        # Calculate reward
+        gini = self._gini()
+        reward = 1.0 - gini  # Base reward on equality
+
+        if self.reward_shaping:
+            # Additional reward shaping
+            if self.current_speaker != -1:
+                # Bonus for new speaker
+                if self.speaking_time[self.current_speaker] == 1:
+                    reward += 0.2
+                # Penalty for long speaking turns
+                if (
+                    self.speaking_time[self.current_speaker]
+                    > self.agent_params[self.current_speaker]["max_speaking_time"] * 0.8
+                ):
+                    reward -= 0.1
+
+        terminated = False
+        truncated = self.step_counter >= self.max_steps
+
+        obs = self._get_obs()
+        info = dict(
+            num_of_step_env=self.step_counter,
+            phoneme=self.phonemes.copy(),
+            actions_stats=self.action_stats.copy(),
+            env_reward=1.0 - gini,
+            action_number=int(action),
+            gini_history=self.gini_history,
+            phoneme_history=self.phoneme_history,
+            energy=self.energy,
+        )
+        
+        self.gini_history.append(1.0 - info["env_reward"])
+        self.env_reward.append(info["env_reward"])
+        self.phoneme_history.append(self.phonemes.copy())
+        
+        self._tick_encourage_buffs()
+        return obs, reward, terminated, truncated, info
+
+    # ---- NEW helper methods somewhere in the class ----
 
     def _get_obs(self) -> np.ndarray:
         """Enhanced observation with softmax distributions and relative features."""
@@ -203,163 +331,19 @@ class GuestEnv(gym.Env):
         if total == 0:
             return 0.0
         x = self.phonemes.astype(float)
-        diffs = np.abs(x[:, None] - x[None, :]).sum()
+        diffs = np.abs(x[:, None] - x[None, :]).sum() # n*n
         n = len(x)
         return float(diffs / (2 * n * total))
 
-    def reset(self, *, seed=None, options=None):
-        super().reset(seed=seed)
-        if seed is not None:
-            self.seed = seed
-            self.rng = np.random.default_rng(seed)
-
-        # Initialize with imbalanced energy levels if specified
-        if self.energy_imbalance > 0:
-            base_energy = 0.5
-            self.energy = np.array(
-                [
-                    base_energy * (1 - self.energy_imbalance),
-                    base_energy,
-                    base_energy * (1 + self.energy_imbalance),
-                ]
-            )
-        else:
-            self.energy = self.rng.uniform(0.4, 0.6, size=3)
-
-        self.speaking_time = np.zeros(3)
-        self.phonemes = np.zeros(3, dtype=int)
-        self.current_speaker = -1
-        self.step_counter = 0
-        self.action_stats[:] = 0
-        self.gini_history = []
-        self.phoneme_history = []
-        self._encourage_buffs = [[] for _ in range(3)]
-
-        obs = self._get_obs()
-        info = dict(
-            num_of_step_env=self.step_counter,
-            phoneme=self.phonemes.copy(),
-            actions_stats=self.action_stats.copy(),
-            env_reward=0.0,
-            action_number=-1,
-            gini_history=self.gini_history,
-            phoneme_history=self.phoneme_history,
-        )
-        return obs, info
-
-    @logger.catch
-    def step(self, action: int):
-        self.step_counter += 1
-        self.action_stats[action] += 1
-
-        # Process Guest action with imbalance factor
-        logger.debug(f"{self.current_speaker=}")
-        if 1 <= action <= 3:  # stare_at
-            target = action - 1
-            effect = 0.1 * (1 - self.imbalance_factor)
-            self.energy[target] = min(1.0, self.energy[target] + effect)
-        elif 4 <= action <= 6:  # encourage
-            target = action - 4
-            self._apply_encourage(target)
-            # if self.current_speaker == -1:
-            #     effect = 0.5 * (1 - self.imbalance_factor)
-            #     self.energy[target] = min(1.0, self.energy[target] + effect)
-
-        # Agent-specific energy dynamics
-        for i in range(3):
-            params = self.agent_params[i]
-            if i != self.current_speaker:
-                gain = params["energy_gain"] * (1 + self.imbalance_factor * (i - 1))
-                self.energy[i] = min(1.0, self.energy[i] + gain)
-                logger.debug(f"{self.energy[i]}")
-            else:
-                self.energy[i] = max(0.0, self.energy[i] - params["energy_decay"])
-                logger.debug(f"{self.energy[i]}")
-
-        # Speaking dynamics with agent-specific parameters
-        if self.current_speaker == -1:
-            # Find potential speakers based on their individual thresholds
-            candidates = []
-            for i in range(3):
-                if self.energy[i] >= self.agent_params[i]["min_energy_to_speak"]:
-                    candidates.append(i)
-
-            if len(candidates) > 0:
-                probs = self._speak_probs()
-                chosen = self._sample_from_probs(probs)   # returns an int
-                # Choose speaker with highest energy
-                c = self._random_sample(self.energy)
-                self.current_speaker = c
-                # self.current_speaker = candidates[np.argmax(self.energy[candidates])]
-                logger.debug(f"{self.current_speaker=}")
-                self.speaking_time[self.current_speaker] = 0
-        else:
-            # Current speaker continues or yields based on their parameters
-            params = self.agent_params[self.current_speaker]
-            self.speaking_time[self.current_speaker] += 1
-            if (
-                self.speaking_time[self.current_speaker] >= params["max_speaking_time"]
-                or self.energy[self.current_speaker] < params["min_energy_to_speak"]
-            ):
-                self.current_speaker = -1
-
-        # Update phonemes with agent-specific rates
-        if self.current_speaker != -1:
-            self.phonemes[self.current_speaker] += self.agent_params[
-                self.current_speaker
-            ]["phonemes_per_step"]
-
-        # Calculate reward
-        gini = self._gini()
-        reward = 1.0 - gini  # Base reward on equality
-
-        if self.reward_shaping:
-            # Additional reward shaping
-            if self.current_speaker != -1:
-                # Bonus for new speaker
-                if self.speaking_time[self.current_speaker] == 1:
-                    reward += 0.2
-                # Penalty for long speaking turns
-                if (
-                    self.speaking_time[self.current_speaker]
-                    > self.agent_params[self.current_speaker]["max_speaking_time"] * 0.8
-                ):
-                    reward -= 0.1
-
-        terminated = False
-        truncated = self.step_counter >= self.max_steps
-
-        obs = self._get_obs()
-        info = dict(
-            num_of_step_env=self.step_counter,
-            phoneme=self.phonemes.copy(),
-            actions_stats=self.action_stats.copy(),
-            env_reward=1.0 - gini,
-            action_number=int(action),
-            gini_history=self.gini_history,
-            phoneme_history=self.phoneme_history,
-            energy=self.energy,
-        )
-
-        # Track history
-        self.gini_history.append(1.0 - info["env_reward"])
-        self.env_reward.append(info["env_reward"])
-        self.phoneme_history.append(self.phonemes.copy())
-        self._tick_encourage_buffs()
-        return obs, reward, terminated, truncated, info
-
-    # ---- NEW helper methods somewhere in the class ----
-
     def _apply_encourage(self, target: int) -> None:
         """Apply a temporary encourage buff to `target`."""
-        # if self.current_speaker != -1:
-        #     return  # your existing logic: only when nobody is speaking
-        # base effect scaled by imbalance, then cap to headroom so we can remove it later safely
+
         effect = self.encourage_base_effect * (1 - self.imbalance_factor)
-        headroom = 1.0 - float(self.energy[target])
-        delta = max(0.0, min(effect, headroom))
-        if delta <= 0.0:
-            return
+        delta = effect
+        # headroom = 1.0 - float(self.energy[target])
+        # delta = max(0.0, min(effect, headroom))
+        # if delta <= 0.0:
+        #     return
 
         # apply now
         self.energy[target] = min(1.0, float(self.energy[target]) + delta)
@@ -379,7 +363,7 @@ class GuestEnv(gym.Env):
 
     def _tick_encourage_buffs(self) -> None:
         """Decrement timers and remove expired buff amounts from energy."""
-        for i in range(3):
+        for i in range(len(self.agent_params)):
             kept = []
             for b in self._encourage_buffs[i]:
                 b["remaining"] -= 1
@@ -391,59 +375,6 @@ class GuestEnv(gym.Env):
                 else:
                     kept.append(b)
             self._encourage_buffs[i] = kept
-
-    def _eligible_mask_for_turn(self) -> np.ndarray:
-        """
-        An agent is eligible to start speaking if their energy is at least their min_energy_to_speak.
-        Returns a bool array of shape (3,).
-        """
-        mask = []
-        for i in range(3):
-            min_e = self.agent_params[i]["min_energy_to_speak"]
-            mask.append(self.energy[i] >= min_e)
-        return np.array(mask, dtype=bool)
-
-    def _softmax(
-        self, x: np.ndarray, tau: float = 0.0, mask: np.ndarray | None = None
-    ) -> np.ndarray:
-        """
-        Numerically-stable softmax with optional boolean mask (False => probability 0).
-        """
-        x = np.asarray(x, dtype=float)
-        if mask is None:
-            mask = np.ones_like(x, dtype=bool)
-        masked = np.where(mask, x, -np.inf)
-        # subtract max over eligible for stability
-        if not mask.any():
-            # no eligible entries; return uniform to avoid NaNs
-            return np.ones_like(x) / len(x)
-        m = np.max(masked[mask])
-        exps = np.exp(
-            np.clip((masked - m) / max(1e-8, float(tau)), -100, 100)
-        ) * mask.astype(float)
-        Z = exps.sum()
-        if not np.isfinite(Z) or Z <= 0.0:
-            # fallback uniform over eligible
-            u = mask.astype(float)
-            return u / u.sum()
-        return exps / Z
-
-    # def _sample_from_probs(self, probs: np.ndarray) -> int:
-    #     """
-    #     Draw a single index according to probs (shape (N,)).
-    #     """
-    #     rng = getattr(self, "rng", None)
-    #     if rng is None:
-    #         # safety, but you already set rng in __init__
-    #         rng = np.random.default_rng(42)
-    #         self.rng = rng
-    #     return int(rng.choice(len(probs), p=probs))
-    #     self.n = n_agents
-    #     self.rng = np.random.default_rng(seed)
-    def _sample_from_probs(self, probs: np.ndarray, seed: Optional[int] = None) -> int:
-        rng = np.random.default_rng(seed)
-        agents = np.arange(len(probs))
-        return int(rng.choice(agents, p=probs))
     
     def _random_sample(self, energy, agents = [0, 1, 2])-> int :
         #random choise 
@@ -457,102 +388,3 @@ class GuestEnv(gym.Env):
         # Sample one agent
         choice = random.choices(agents, weights=probs, k=1)[0]
         return choice
-    def _uniform_sample(self, energies, agents = [0, 1, 2], tau=2.0, seed=45)-> int :
-        rng = np.random.default_rng(seed)
-
-        energies = np.array(energies, dtype=float)
-        total = energies.sum()
-
-        if total <= 0:
-            # fallback: uniform choice if no energy
-            return rng.choice(agents)
-
-        # normalize to probabilities
-        probs = energies / total
-
-        # sample one agent
-        choice = rng.choice(agents, p=probs)
-        return int(choice)
-    def _eligible_mask_for_turn(self) -> np.ndarray:
-        """Boolean mask of agents allowed to take the floor this step."""
-        energies = np.asarray(self.energy, dtype=float)
-        # Example rule: everyone with non-negative energy is eligible
-        mask = np.isfinite(energies) & (energies >= 0.0)
-        return mask
-    def _speak_probs(self) -> np.ndarray:
-        """
-        Compute next-speaker probabilities using:
-        baseline = normalized energy
-        momentary = d * exp(-b * skipped_i)
-        raw = alpha * baseline + (1-alpha) * momentary
-        apply constraints (eligibility, no immediate self-follow)
-        normalize to probs
-        """
-        N = self.num_agents
-        energies = np.asarray(self.energy, dtype=float)
-        energies = np.clip(np.nan_to_num(energies, nan=0.0), 0.0, None)
-
-        # --- 1) baseline from energies (normalize) ---
-        total = energies.sum()
-        if total <= 0.0:
-            baseline = np.full(N, 1.0 / N)         # fallback: uniform baseline
-        else:
-            baseline = energies / total
-
-        # --- 2) momentary boost with exponential decay by missed turns ---
-        t = self.speak_skipped
-        momentary = self.speak_d * np.exp(-self.speak_b * t)   # shape (N,)
-
-        # --- 3) mix baseline and momentary ---
-        raw = self.speak_alpha * baseline + (1.0 - self.speak_alpha) * momentary
-
-        # --- 4) constraints: eligibility + forbid immediate self-follow ---
-        mask = self._eligible_mask_for_turn()
-        if self.current_speaker is not None and self.current_speaker >= 0:
-            # The paper treats a whole utterance as a unit; forbid immediate re-pick
-            mask[self.current_speaker] = False
-
-        raw = np.where(mask, raw, 0.0)
-
-        # --- 5) normalize to probabilities ---
-        Z = raw.sum()
-        if not np.isfinite(Z) or Z <= 0.0:
-            # fallback: uniform over eligible agents
-            u = mask.astype(float)
-            u_sum = u.sum()
-            if u_sum <= 0:
-                return np.full(N, 1.0 / N)
-            return u / u_sum
-        return raw / Z
-
-    # def _speak_probs(self) -> np.ndarray:
-    #     """
-    #     Compute next-speaker probabilities with energy as baseline propensity.
-    #     """
-    #     energies = np.array(self.energy, dtype=float)
-    #     energies = np.clip(energies, 0.0, None)
-    #     if energies.sum() == 0:
-    #         energies[:] = 1.0   # fallback if everyone has 0 energy
-
-    #     # 1) baseline from energies (normalized)
-    #     pi = energies / energies.sum()
-
-    #     # 2) momentary boost with exponential decay
-    #     t = self.speak_skipped
-    #     momentary = self.speak_d * np.exp(-self.speak_b * t)
-
-    #     # 3) mix baseline and momentary
-    #     raw = self.speak_alpha * pi + (1.0 - self.speak_alpha) * momentary
-
-    #     # 4) apply constraints
-    #     mask = self._eligible_mask_for_turn()
-    #     if self.current_speaker != -1:
-    #         mask[self.current_speaker] = False
-    #     raw = np.where(mask, raw, 0.0)
-
-    #     # 5) normalize
-    #     Z = raw.sum()
-    #     if Z <= 0:
-    #         u = mask.astype(float)
-    #         return u / max(1.0, u.sum())
-    #     return raw / Z
