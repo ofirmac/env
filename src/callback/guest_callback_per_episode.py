@@ -34,12 +34,14 @@ class CallbackPerEpisode(BaseCallback):
         
         # Episode-level tracking
         self.episode_rewards = []
+        self.episode_env_rewards = []  # Track base environment rewards separately
         self.episode_phonemes = []
         self.episode_gini = []
         self.episode_actions = []
-        
+
         # Current episode tracking
         self.current_episode_reward = 0
+        self.current_episode_env_reward = 0  # Track base environment reward
         self.current_episode_steps = 0
         self.episode_count = 0
         
@@ -73,7 +75,7 @@ class CallbackPerEpisode(BaseCallback):
             # Track current episode
             self.current_episode_reward += reward
             self.current_episode_steps += 1
-            
+
             # Get metrics from info with safe extraction
             phonemes = self._safe_get_metric(info, "phoneme", [0, 0, 0])
             gini_history = self._safe_get_metric(info, "gini_history", [])
@@ -82,6 +84,9 @@ class CallbackPerEpisode(BaseCallback):
             env_reward = self._safe_get_metric(info, "env_reward", 0)  # Base reward without shaping
             total_reward = self._safe_get_metric(info, "total_reward", reward)  # FIXED: Total reward with shaping
             energy = self._safe_get_metric(info, "energy", [0, 0, 0])
+
+            # Track base environment reward
+            self.current_episode_env_reward += env_reward
             
             # Store step data for current episode
             # FIXED: Store the actual reward used by PPO (includes shaping)
@@ -176,11 +181,14 @@ class CallbackPerEpisode(BaseCallback):
         
         # Episode reward
         self.episode_rewards.append(self.current_episode_reward)
+        self.episode_env_rewards.append(self.current_episode_env_reward)
         self.writer.add_scalar('Episode/Total_Reward', self.current_episode_reward, self.episode_count)
-        
+        self.writer.add_scalar('Episode/Total_Env_Reward', self.current_episode_env_reward, self.episode_count)
+
         # Avoid division by zero
         if self.current_episode_steps > 0:
             self.writer.add_scalar('Episode/Average_Reward', self.current_episode_reward / self.current_episode_steps, self.episode_count)
+            self.writer.add_scalar('Episode/Average_Env_Reward', self.current_episode_env_reward / self.current_episode_steps, self.episode_count)
         
         # Final phoneme counts
         final_phonemes = self._safe_get_metric(final_info, "phoneme", [0, 0, 0])
@@ -222,6 +230,7 @@ class CallbackPerEpisode(BaseCallback):
         
         # Reset for next episode
         self.current_episode_reward = 0
+        self.current_episode_env_reward = 0
         self.current_episode_steps = 0
         self.current_episode_data = {
             'rewards': [],           # PPO rewards (with shaping)
@@ -463,19 +472,27 @@ class CallbackPerEpisode(BaseCallback):
             # Episode rewards plot
             if self.episode_rewards:
                 plt.figure(figsize=(12, 4))
-                
+
                 plt.subplot(1, 2, 1)
-                plt.plot(self.episode_rewards)
+                # Plot both PPO rewards and environment rewards
+                plt.plot(self.episode_rewards, 'b-', alpha=0.6, label='PPO Reward (with shaping)')
+                if self.episode_env_rewards:
+                    plt.plot(self.episode_env_rewards, 'g-', alpha=0.6, label='Environment Reward (base)')
                 plt.xlabel('Episode')
                 plt.ylabel('Total Reward')
                 plt.title('Episode Rewards During Training')
                 plt.grid(True, alpha=0.3)
-                
-                # Moving average
+                plt.legend()
+
+                # Moving average for both
                 if len(self.episode_rewards) > 10:
                     window = min(50, len(self.episode_rewards) // 10)
-                    moving_avg = np.convolve(self.episode_rewards, np.ones(window)/window, mode='valid')
-                    plt.plot(range(window-1, len(self.episode_rewards)), moving_avg, 'r-', alpha=0.7, label=f'Moving Avg ({window})')
+                    moving_avg_ppo = np.convolve(self.episode_rewards, np.ones(window)/window, mode='valid')
+                    plt.plot(range(window-1, len(self.episode_rewards)), moving_avg_ppo, 'b-', linewidth=2, alpha=0.9, label=f'PPO Moving Avg ({window})')
+
+                    if self.episode_env_rewards and len(self.episode_env_rewards) > 10:
+                        moving_avg_env = np.convolve(self.episode_env_rewards, np.ones(window)/window, mode='valid')
+                        plt.plot(range(window-1, len(self.episode_env_rewards)), moving_avg_env, 'g-', linewidth=2, alpha=0.9, label=f'Env Moving Avg ({window})')
                     plt.legend()
                 
                 plt.subplot(1, 2, 2)
@@ -546,6 +563,7 @@ class CallbackPerEpisode(BaseCallback):
         """Save callback data to file for later analysis."""
         data = {
             'episode_rewards': self.episode_rewards,
+            'episode_env_rewards': self.episode_env_rewards,
             'episode_phonemes': self.episode_phonemes,
             'episode_gini': self.episode_gini,
             'episode_actions': self.episode_actions,
@@ -566,8 +584,9 @@ class CallbackPerEpisode(BaseCallback):
         try:
             with open(filepath, 'rb') as f:
                 data = pickle.load(f)
-            
+
             self.episode_rewards = data.get('episode_rewards', [])
+            self.episode_env_rewards = data.get('episode_env_rewards', [])
             self.episode_phonemes = data.get('episode_phonemes', [])
             self.episode_gini = data.get('episode_gini', [])
             self.episode_actions = data.get('episode_actions', [])
