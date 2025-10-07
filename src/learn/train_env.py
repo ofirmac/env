@@ -1,11 +1,16 @@
 import os
+import sys
 import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-from env.env_gym import GuestEnv
-from callback.guest_callback import TensorBoardMetricsCallback
-from callback.guest_callback_per_episode import CallbackPerEpisode
 from datetime import datetime
+
+# Add the project root to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from src.env.env_gym import GuestEnv
+from src.callback.guest_callback import TensorBoardMetricsCallback
+from src.callback.guest_callback_per_episode import CallbackPerEpisode
 
 MAX_STEPS = 500
 TOTAL_TIMESTEPS = MAX_STEPS*100
@@ -114,6 +119,8 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = os.path.join(os.ge
         print(f"Final episode reward: {(callback.episode_rewards[-1]/MAX_STEPS):.3f}")
 
 if __name__ == "__main__":
-    date_str = datetime.now().strftime("%Y_%m_%d")   
+    date_str = datetime.now().strftime("%Y_%m_%d")
     print(f"{date_str}")
-    train(results_dir = f"/Users/ofir/env/src/test_result/train_result_{date_str}")
+    # Use current working directory for results
+    results_dir = os.path.join(os.getcwd(), "src", "test_result", f"train_result_{date_str}")
+    train(results_dir=results_dir)
