@@ -25,8 +25,8 @@ class CallbackPerEpisode(BaseCallback):
         log_dir: Directory for TensorBoard logs
         max_stored_episodes: Maximum episodes to store for plotting (memory limit)
     """
-    
-    def __init__(self, log_dir: str = "./tensorboard_logs/", max_stored_episodes: int = 100) -> None:
+    @logger.catch
+    def __init__(self, log_dir: str = "./tensorboard_logs/", max_stored_episodes: int = 1000) -> None:
         super().__init__()
         self.log_dir = log_dir
         self.writer = None
@@ -34,6 +34,7 @@ class CallbackPerEpisode(BaseCallback):
         
         # Episode-level tracking
         self.episode_rewards = []
+        self.avg_episode_rewards = []
         self.episode_phonemes = []
         self.episode_gini = []
         self.episode_actions = []
@@ -54,12 +55,12 @@ class CallbackPerEpisode(BaseCallback):
             'cumulative_reward': [],
             'energy': []
         }
-        
+    @logger.catch    
     def _on_training_start(self) -> None:
         """Initialize TensorBoard writer."""
         os.makedirs(self.log_dir, exist_ok=True)
         self.writer = SummaryWriter(self.log_dir)
-        
+    @logger.catch    
     def _on_step(self) -> bool:
         """Called after each environment step."""
         # Get info from the environment
@@ -68,7 +69,9 @@ class CallbackPerEpisode(BaseCallback):
         
         if len(infos) > 0 and len(rewards) > 0:
             info = infos[0]
+            logger.debug(f"{rewards=}")
             reward = rewards[0]
+            logger.debug(f"{reward=}")
             
             # Track current episode
             self.current_episode_reward += reward
@@ -144,7 +147,7 @@ class CallbackPerEpisode(BaseCallback):
                 self._log_episode_metrics(info)
                 
         return True
-    
+    @logger.catch
     def _safe_get_metric(self, info: Dict[str, Any], key: str, default_value: Any) -> Any:
         """Safely extract metrics from info dict with validation."""
         try:
@@ -156,13 +159,13 @@ class CallbackPerEpisode(BaseCallback):
         except Exception as e:
             logger.warning(f"Error extracting {key}: {e}")
             return default_value
-    
+    @logger.catch
     def _get_num_agents(self) -> int:
         """Dynamically determine number of agents from data."""
         if self.episode_phonemes:
             return len(self.episode_phonemes[0])
         return 3  # Default fallback
-    
+    @logger.catch
     def _log_episode_metrics(self, final_info: Dict[str, Any]) -> None:
         """Log episode-level metrics."""
         self.episode_count += 1
@@ -177,6 +180,11 @@ class CallbackPerEpisode(BaseCallback):
         # Episode reward
         self.episode_rewards.append(self.current_episode_reward)
         self.writer.add_scalar('Episode/Total_Reward', self.current_episode_reward, self.episode_count)
+        
+        # Avg reward
+        avg_reward = self.current_episode_reward / self.current_episode_steps
+        self.avg_episode_rewards.append(avg_reward)
+        self.writer.add_scalar('Episode/Avg_Total_Reward', avg_reward, self.episode_count)
         
         # Avoid division by zero
         if self.current_episode_steps > 0:
@@ -236,7 +244,7 @@ class CallbackPerEpisode(BaseCallback):
         # Log episode summary every 10 episodes
         if self.episode_count % 10 == 0:
             self._log_summary_statistics()
-    
+    @logger.catch
     def _log_summary_statistics(self) -> None:
         """Log summary statistics over recent episodes."""
         if len(self.episode_rewards) >= 10:
@@ -256,12 +264,12 @@ class CallbackPerEpisode(BaseCallback):
                 # Balance over last 10 episodes
                 phoneme_std = np.std(avg_phonemes)
                 self.writer.add_scalar('Summary/Avg_Balance_StdDev_10', phoneme_std, self.episode_count)
-    
+    @logger.catch
     def _on_training_end(self) -> None:
         """Close TensorBoard writer."""
         if self.writer:
             self.writer.close()
-    
+    @logger.catch
     def create_final_plots(self, results_dir: str, plot_episodes: Optional[List[int]] = None, max_episodes: int = 10) -> None:
         """
         Create final matplotlib plots for the paper, including detailed episode plots.
@@ -294,7 +302,7 @@ class CallbackPerEpisode(BaseCallback):
         
         print(f"Created plots for {len(plot_episodes)} episodes in {episodes_dir}")
         print(f"Created summary plots in {results_dir}")
-    
+    @logger.catch
     def _create_episode_plot(self, episode_idx: int, save_dir: str) -> None:
         """Create a detailed plot for a single episode with improved layout and error handling."""
         if episode_idx >= len(self.episodes_step_data):
@@ -409,6 +417,24 @@ class CallbackPerEpisode(BaseCallback):
         ax5.set_ylabel('Count')
         ax5.legend()
         ax5.grid(True)
+
+        # --- Keep same y-axis scale for all action plots ---
+        max_y = max(
+            wait_counts[-1] if len(wait_counts) > 0 else 0,
+            stare_0_counts[-1] if len(stare_0_counts) > 0 else 0,
+            stare_1_counts[-1] if len(stare_1_counts) > 0 else 0,
+            stare_2_counts[-1] if len(stare_2_counts) > 0 else 0,
+            encourage_0_counts[-1] if len(encourage_0_counts) > 0 else 0,
+            encourage_1_counts[-1] if len(encourage_1_counts) > 0 else 0,
+            encourage_2_counts[-1] if len(encourage_2_counts) > 0 else 0
+        )
+
+        # Add a small margin
+        ylim_max = max_y + max(1, int(max_y * 0.05))
+
+        for ax in [ax3, ax4, ax5]:
+            ax.set_ylim(0, ylim_max)
+
         
         # Set y-ticks for encourage actions if reasonable number
         max_val_encourage = max(encourage_0_counts[-1] if len(encourage_0_counts) > 0 else 0,
@@ -456,38 +482,41 @@ class CallbackPerEpisode(BaseCallback):
             logger.error(f"Error saving plot for episode {episode_idx + 1}: {e}")
         finally:
             plt.close()
-    
+    @logger.catch
     def _create_summary_plots(self, results_dir: str) -> None:
         """Create summary plots across all episodes with improved error handling."""
         try:
             # Episode rewards plot
-            if self.episode_rewards:
+            if self.avg_episode_rewards:
+                logger.info(f"{self.avg_episode_rewards=}")
                 plt.figure(figsize=(12, 4))
                 
                 plt.subplot(1, 2, 1)
-                plt.plot(self.episode_rewards)
+                plt.plot(self.avg_episode_rewards)
                 plt.xlabel('Episode')
                 plt.ylabel('Total Reward')
                 plt.title('Episode Rewards During Training')
                 plt.grid(True, alpha=0.3)
                 
                 # Moving average
-                if len(self.episode_rewards) > 10:
-                    window = min(50, len(self.episode_rewards) // 10)
-                    moving_avg = np.convolve(self.episode_rewards, np.ones(window)/window, mode='valid')
-                    plt.plot(range(window-1, len(self.episode_rewards)), moving_avg, 'r-', alpha=0.7, label=f'Moving Avg ({window})')
+                if len(self.avg_episode_rewards) > 10:
+                    window = min(50, len(self.avg_episode_rewards) // 10)
+                    moving_avg = np.convolve(self.avg_episode_rewards, np.ones(window)/window, mode='valid')
+                    plt.plot(range(window-1, len(self.avg_episode_rewards)), moving_avg, 'r-', alpha=0.7, label=f'Moving Avg ({window})')
                     plt.legend()
                 
                 plt.subplot(1, 2, 2)
                 if self.episode_phonemes:
-                    phonemes_array = np.array(self.episode_phonemes)
+                    logger.info(f"{self.episode_phonemes=}")
+                    avg = [[x / 10 for x in sublist] for sublist in self.episode_phonemes]
+                    phonemes_array = np.array(avg)
                     colors = ['blue', 'orange', 'green', 'red', 'purple', 'brown']
                     for i in range(min(phonemes_array.shape[1], len(colors))):
                         plt.plot(phonemes_array[:, i], label=f'Agent {i}', 
                                 color=colors[i % len(colors)], alpha=0.7)
                     plt.xlabel('Episode')
                     plt.ylabel('Final Phoneme Count')
-                    plt.title('Agent Phonemes per Episode')
+                    plt.title('Agent Avg Phonemes per Episode')
                     plt.legend()
                     plt.grid(True, alpha=0.3)
                 
@@ -541,11 +570,12 @@ class CallbackPerEpisode(BaseCallback):
                 
         except Exception as e:
             logger.error(f"Error creating summary plots: {e}")
-    
+    @logger.catch
     def save_data(self, filepath: str) -> None:
         """Save callback data to file for later analysis."""
         data = {
             'episode_rewards': self.episode_rewards,
+            'avg_episode_rewards': self.avg_episode_rewards,
             'episode_phonemes': self.episode_phonemes,
             'episode_gini': self.episode_gini,
             'episode_actions': self.episode_actions,
@@ -560,7 +590,7 @@ class CallbackPerEpisode(BaseCallback):
             logger.info(f"Callback data saved to {filepath}")
         except Exception as e:
             logger.error(f"Error saving callback data: {e}")
-    
+    @logger.catch
     def load_data(self, filepath: str) -> None:
         """Load callback data from file."""
         try:
@@ -568,6 +598,7 @@ class CallbackPerEpisode(BaseCallback):
                 data = pickle.load(f)
             
             self.episode_rewards = data.get('episode_rewards', [])
+            self.avg_episode_rewards = data.get('avg_episode_rewards', [])
             self.episode_phonemes = data.get('episode_phonemes', [])
             self.episode_gini = data.get('episode_gini', [])
             self.episode_actions = data.get('episode_actions', [])

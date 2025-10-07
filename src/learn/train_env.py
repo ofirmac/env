@@ -13,7 +13,8 @@ from src.callback.guest_callback import TensorBoardMetricsCallback
 from src.callback.guest_callback_per_episode import CallbackPerEpisode
 
 MAX_STEPS = 500
-TOTAL_TIMESTEPS = MAX_STEPS*100
+MAX_EPISODE = 100
+TOTAL_TIMESTEPS = MAX_STEPS*MAX_EPISODE
 
 #-------    Main training function -------
 def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = os.path.join(os.getcwd(), "ppo_results_per_episode.pkl")) -> None:
@@ -115,12 +116,13 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = os.path.join(os.ge
     print(f"Training completed! Results saved to: {results_dir}")
     print(f"Total episodes: {callback.episode_count}")
     if callback.episode_rewards:
-        print(f"Average episode reward: {np.mean(callback.episode_rewards):.3f}/")
+        avg = [i/MAX_STEPS for i in callback.episode_rewards]
+        print(f"Average episode reward: {np.mean(avg):.3f}")
         print(f"Final episode reward: {(callback.episode_rewards[-1]/MAX_STEPS):.3f}")
 
 if __name__ == "__main__":
     date_str = datetime.now().strftime("%Y_%m_%d")
     print(f"{date_str}")
     # Use current working directory for results
-    results_dir = os.path.join(os.getcwd(), "src", "test_result", f"train_result_{date_str}")
+    results_dir = os.path.join(os.getcwd(), "src", "test_result", f"train_result_{date_str}_{MAX_STEPS=}_{MAX_EPISODE=}")
     train(results_dir=results_dir)

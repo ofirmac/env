@@ -9,18 +9,21 @@ from gymnasium import spaces
 from loguru import logger
 import sys
 import random
-from typing import Optional
+import os
+from datetime import datetime
 
 logger.remove()
 logger.add(
-    sys.stdout, level="INFO", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
+    sys.stdout, colorize=True, level="INFO", format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <blue>{level}</blue> | <level>{message}</level>"
 )
-logger.add(
-    sys.stdout,
-    colorize=True,
-    format="<green>{time}</green> <level>{message}</level>",
-    level="INFO",
-)
+date_str = datetime.now().strftime("%Y_%m_%d")
+logger.add(f"{os.getcwd()}/training_{date_str}.log", format="{time} | {level} | {message}", level="TRACE")
+# logger.add(
+#     sys.stdout,
+#     colorize=True,
+#     format="<green>{time}</green> <level>{message}</level>",
+#     level="INFO",
+# )
 
 # ------------------------------------------------------------------------
 # 1.  ENVIRONMENT
@@ -271,6 +274,10 @@ class GuestEnv(gym.Env):
         self.gini_history.append(gini)
         self.env_reward.append(base_reward)
         self.phoneme_history.append(self.phonemes.copy())
+
+        # Log after each step
+        logger.trace(f"Step={self.step_counter} | Reward={reward:.4f} | Phonemes={self.phonemes.tolist()}")
+
         
         self._tick_encourage_buffs()
         return obs, reward, terminated, truncated, info
