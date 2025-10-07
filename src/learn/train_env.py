@@ -13,7 +13,7 @@ from src.callback.guest_callback import TensorBoardMetricsCallback
 from src.callback.guest_callback_per_episode import CallbackPerEpisode
 
 MAX_STEPS = 500
-MAX_EPISODE = 100
+MAX_EPISODE = 10_000
 TOTAL_TIMESTEPS = MAX_STEPS*MAX_EPISODE
 
 #-------    Main training function -------
