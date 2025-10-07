@@ -38,7 +38,8 @@ class CallbackPerEpisode(BaseCallback):
             'phonemes': [],
             'gini': [],
             'actions': [],
-            'cumulative_reward': []
+            'cumulative_reward': [],
+            'energy': []
         }
         
     def _on_training_start(self) -> None:
@@ -66,6 +67,7 @@ class CallbackPerEpisode(BaseCallback):
             current_gini = gini_history[-1] if gini_history else 0
             action_number = info.get("action_number", -1)
             env_reward = info.get("env_reward", 0)
+            energy = info.get("energy", [0, 0, 0])
             
             # Store step data for current episode
             self.current_episode_data['rewards'].append(reward)
@@ -73,6 +75,7 @@ class CallbackPerEpisode(BaseCallback):
             self.current_episode_data['gini'].append(current_gini)
             self.current_episode_data['actions'].append(action_number)
             self.current_episode_data['cumulative_reward'].append(self.current_episode_reward)
+            self.current_episode_data['energy'].append(energy)
             
             # Log step-level metrics
             global_step = self.num_timesteps
@@ -83,7 +86,14 @@ class CallbackPerEpisode(BaseCallback):
             
             # Phonemes per agent
             for i, phoneme_count in enumerate(phonemes):
-                self.writer.add_scalar(f'Step/Agent_{i}_Phonemes', phoneme_count, global_step)
+                self.writer.add_scalar(f'Step_Phonemes/Agent_{i}_Phonemes', phoneme_count, global_step)
+            
+            self.writer.add_scalars(f'Step_Phonemes/All_Agent_Phonemes',{"Agent-1" : phonemes[0],"Agent-2" : phonemes[1],"Agent-3" : phonemes[2]},global_step)
+
+            for i, energy_count in enumerate(energy):
+                self.writer.add_scalar(f'Step_Energy/Agent_{i}_Energy', energy_count, global_step)
+            
+            self.writer.add_scalars(f'Step_Energy/All_Agent_Energy',{"Agent-1" : energy[0],"Agent-2" : energy[1],"Agent-3" : energy[2]},global_step)
             
             # Gini coefficient
             self.writer.add_scalar('Step/Gini_Coefficient', current_gini, global_step)
@@ -97,7 +107,7 @@ class CallbackPerEpisode(BaseCallback):
             if total_phonemes > 0:
                 for i, phoneme_count in enumerate(phonemes):
                     percentage = (phoneme_count / total_phonemes) * 100
-                    self.writer.add_scalar(f'Step/Agent_{i}_Percentage', percentage, global_step)
+                    self.writer.add_scalar(f'Step_Percentage/Agent_{i}_Percentage', percentage, global_step)
             
             # Check if episode ended
             dones = self.locals.get("dones", [False])
@@ -161,7 +171,8 @@ class CallbackPerEpisode(BaseCallback):
             'phonemes': [],
             'gini': [],
             'actions': [],
-            'cumulative_reward': []
+            'cumulative_reward': [],
+            'energy': []
         }
         
         # Log episode summary every 10 episodes
@@ -343,16 +354,18 @@ class CallbackPerEpisode(BaseCallback):
     
     def _create_episode_plot_3(self, episode_idx: int, save_dir: str):
         """Create a detailed plot for a single episode."""
+        print("--------------")
         if episode_idx >= len(self.episodes_step_data):
             return
             
         episode_data = self.episodes_step_data[episode_idx]
+        print(episode_data)
         steps = range(len(episode_data['rewards']))
         
         # Create figure with subplots: 3 rows with different column counts
         fig = plt.figure(figsize=(18, 15))
         # Define a grid specification with 3 rows
-        gs = fig.add_gridspec(3, 3, height_ratios=[1, 1, 1])
+        gs = fig.add_gridspec(4, 3, height_ratios=[1, 1, 1, 1])
         
         # First row: 2 plots (spans 2 columns each)
         ax1 = fig.add_subplot(gs[0, 0:3])  # Rewards plot (spans first 2 columns)
@@ -366,6 +379,7 @@ class CallbackPerEpisode(BaseCallback):
         ax5 = fig.add_subplot(gs[2, 0])    # Wait/Stop actions
         ax6 = fig.add_subplot(gs[2, 1])    # Stare actions
         ax7 = fig.add_subplot(gs[2, 2])    # Encourage actions
+        ax8 = fig.add_subplot(gs[3, :])    # Energy
         
         fig.suptitle(f'Episode {episode_idx + 1} - Step-by-Step Analysis', fontsize=16)
         
@@ -441,6 +455,14 @@ class CallbackPerEpisode(BaseCallback):
         ax7.set_ylabel('Count')
         ax7.legend()
         ax7.grid(True)
+
+        ax8.plot(steps, episode_data['energy'], 'b-', alpha=0.7, label='Step Reward')
+        # ax1.plot(steps, episode_data['cumulative_reward'], 'r-', alpha=0.7, label='Cumulative Reward')
+        ax8.set_xlabel('Step')
+        ax8.set_ylabel('energy')
+        ax8.set_title('Rewards per Step')
+        ax8.legend()
+        ax8.grid(True, alpha=0.3)
         
         # Set y-ticks to show all values for Graph 3
         max_val_g3 = max(encourage_0_counts[-1], encourage_1_counts[-1], encourage_2_counts[-1])

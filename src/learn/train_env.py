@@ -7,40 +7,42 @@ from callback.guest_callback import TensorBoardMetricsCallback
 from callback.guest_callback_per_episode import CallbackPerEpisode
 from datetime import datetime
 
-MAX_STEPS = 100
-TOTAL_TIMESTEPS = MAX_STEPS*700
+MAX_STEPS = 500
+TOTAL_TIMESTEPS = MAX_STEPS*100
 
 #-------    Main training function -------
-def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = "ppo_results_per_episode_pkl") -> None:
+def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = os.path.join(os.getcwd(), "ppo_results_per_episode.pkl")) -> None:
     """Enhanced training function with comprehensive logging."""
     os.makedirs(results_dir, exist_ok=True)
     
     # Create environment
-    env = GuestEnv(max_steps=MAX_STEPS, reward_shaping=False)  # Shorter episodes for more frequent logging
-    
-    # Update agent parameters
-    env.agent_params[0].update({
-        'min_energy_to_speak': 0.6,
-        'energy_gain': 0.01,
-        'energy_decay': 0.15,
-        'max_speaking_time': 2,
-        'phonemes_per_step': 1
+    env = GuestEnv(max_steps=MAX_STEPS, reward_shaping=False)
+
+
+    env.agent_params[0].update({  # quiet analyst
+    "min_energy_to_speak": 0.20,
+    "energy_gain": 0.002,
+    "energy_decay": 0.08,
+    "max_speaking_time": 6,
+    "phonemes_per_step": 4,
     })
-    env.agent_params[1].update({
-        'min_energy_to_speak': 0.3,
-        'energy_gain': 0.05,
-        'energy_decay': 0.10,
-        'max_speaking_time': 5,
-        'phonemes_per_step': 2
+
+    env.agent_params[1].update({  # balanced mediator
+        "min_energy_to_speak": 0.55,
+        "energy_gain": 0.010,
+        "energy_decay": 0.05,
+        "max_speaking_time": 8,
+        "phonemes_per_step": 5,
     })
-    env.agent_params[2].update({
-        'min_energy_to_speak': 0.1,
-        'energy_gain': 0.10,
-        'energy_decay': 0.05,
-        'max_speaking_time': 8,
-        'phonemes_per_step': 4
+
+    env.agent_params[2].update({  # energetic storyteller
+        "min_energy_to_speak": 0.85,
+        "energy_gain": 0.028,
+        "energy_decay": 0.03,
+        "max_speaking_time": 12,
+        "phonemes_per_step": 6,
     })
-    
+    print(env.agent_params[2])
     env = DummyVecEnv([lambda: env])
     
     # Create model with TensorBoard logging
@@ -108,10 +110,10 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = "ppo_results_per_e
     print(f"Training completed! Results saved to: {results_dir}")
     print(f"Total episodes: {callback.episode_count}")
     if callback.episode_rewards:
-        print(f"Average episode reward: {np.mean(callback.episode_rewards):.3f}")
-        print(f"Final episode reward: {callback.episode_rewards[-1]:.3f}")
+        print(f"Average episode reward: {np.mean(callback.episode_rewards):.3f}/")
+        print(f"Final episode reward: {(callback.episode_rewards[-1]/MAX_STEPS):.3f}")
 
 if __name__ == "__main__":
     date_str = datetime.now().strftime("%Y_%m_%d")   
     print(f"{date_str}")
-    train(results_dir=f"/Users/ofir/env/src/learn/train_result_{date_str}")
+    train(results_dir = f"/Users/ofir/env/src/test_result/train_result_{date_str}")

@@ -2,7 +2,7 @@ import os
 import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
-from env.test_new_speaker_env import GuestEnv
+from env.env_gym import GuestEnv
 from callback.guest_callback import TensorBoardMetricsCallback
 from callback.guest_callback_per_episode import CallbackPerEpisode
 
@@ -22,27 +22,27 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = "ppo_results_per_e
     env.agent_params[0].update({
         'min_energy_to_speak': 0.6,
         'energy_gain': 0.01,
-        'energy_decay': 0.15,
-        'max_speaking_time': 2,
+        'energy_decay': 0.3,
+        'max_speaking_time': 10,
         'phonemes_per_step': 1
     })
     env.agent_params[1].update({
         'min_energy_to_speak': 0.3,
         'energy_gain': 0.05,
-        'energy_decay': 0.10,
-        'max_speaking_time': 5,
-        'phonemes_per_step': 2
+        'energy_decay': 0.5,
+        'max_speaking_time': 10,
+        'phonemes_per_step': 1
     })
     env.agent_params[2].update({
-        'min_energy_to_speak': 0.1,
+        'min_energy_to_speak': 0.5,
         'energy_gain': 0.10,
-        'energy_decay': 0.05,
-        'max_speaking_time': 8,
-        'phonemes_per_step': 4
+        'energy_decay': 0.5,
+        'max_speaking_time': 10,
+        'phonemes_per_step': 1
     })
     
     env = DummyVecEnv([lambda: env])
-    
+    print(env.agent_params[2])
     # Create model with TensorBoard logging
     tensorboard_log = os.path.join(results_dir, "tensorboard")
     model = PPO(

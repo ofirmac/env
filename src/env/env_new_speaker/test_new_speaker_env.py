@@ -10,25 +10,32 @@ from loguru import logger
 import matplotlib.pyplot as plt
 
 logger.remove()
-logger.add(sys.stdout, level="INFO",
-           format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    sys.stdout, level="INFO", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}"
+)
 
 # ---------------------------------------------------------------------------
 # Moderator actions
 ACTIONS = {
-    0: "wait",        1: "stop",
-    2: "stare_at 0",  3: "stare_at 1",  4: "stare_at 2",
-    5: "encourage 0", 6: "encourage 1", 7: "encourage 2",
+    0: "wait",
+    1: "stop",
+    2: "stare_at 0",
+    3: "stare_at 1",
+    4: "stare_at 2",
+    5: "encourage 0",
+    6: "encourage 1",
+    7: "encourage 2",
 }
 ENCOURAGE_ACTIONS = {5, 6, 7}
 
 # ---------------------------------------------------------------------------
 # Soft-max parameters  ✨ NEW ✨
-ALPHA, BETA, GAMMA = 0.50, 0.35, 0.15      # talk-habit / engagement / fairness
-TAU                = 0.40                  # temperature (↓ deterministic)
-MAX_STREAK         = 200                   # how long before “fairness” saturates
-ENG_DECAY          = 0.01                  # engagement –0.01 every step
-ENG_BOOST          = 0.20                  # encourage gives +0.20 engagement
+ALPHA, BETA, GAMMA = 0.50, 0.35, 0.15  # talk-habit / engagement / fairness
+TAU = 0.40  # temperature (↓ deterministic)
+MAX_STREAK = 200  # how long before “fairness” saturates
+ENG_DECAY = 0.01  # engagement –0.01 every step
+ENG_BOOST = 0.20  # encourage gives +0.20 engagement
+
 
 # ---------------------------------------------------------------------------
 class GuestEnv(gym.Env):
@@ -36,45 +43,67 @@ class GuestEnv(gym.Env):
     GuestEnv with soft-max speaker-selection.
     Reward, utterance length, obs space remain unchanged.
     """
+
     metadata = {"render_modes": []}
 
-    def __init__(self, *, max_steps: int = 600, seed: int = 42,
-                 imbalance_factor: float = 0.0,
-                 energy_imbalance: float = 0.0,
-                 reward_shaping: bool = True,
-                 logfile: bool = False):
+    def __init__(
+        self,
+        *,
+        max_steps: int = 600,
+        seed: int = 42,
+        imbalance_factor: float = 0.0,
+        energy_imbalance: float = 0.0,
+        reward_shaping: bool = True,
+        logfile: bool = False,
+    ):
         super().__init__()
-        self.max_steps       = max_steps
-        self.rng             = np.random.default_rng(seed)
+        self.max_steps = max_steps
+        self.rng = np.random.default_rng(seed)
         self.imbalance_factor = imbalance_factor
         self.energy_imbalance = energy_imbalance
-        self.reward_shaping   = reward_shaping
+        self.reward_shaping = reward_shaping
 
         # ------- NEW soft-max state ----------------------------------- #
-        self.talk_prior     = 0.3 + 0.6 * self.rng.beta(2, 2, size=3)  # α
-        self.engagement     = np.full(3, 0.5, dtype=np.float32)        # β
-        self.silence_streak = np.zeros(3, dtype=np.int32)              # γ
+        self.talk_prior = 0.3 + 0.6 * self.rng.beta(2, 2, size=3)  # α
+        self.engagement = np.full(3, 0.5, dtype=np.float32)  # β
+        self.silence_streak = np.zeros(3, dtype=np.int32)  # γ
 
         # --------------------------------------------------------------- #
-        self.action_space      = spaces.Discrete(len(ACTIONS))
-        self.observation_space = spaces.Box(low=0.0, high=1.0,
-                                            shape=(17,), dtype=np.float32)
+        self.action_space = spaces.Discrete(len(ACTIONS))
+        self.observation_space = spaces.Box(
+            low=0.0, high=1.0, shape=(17,), dtype=np.float32
+        )
 
         # --- (unchanged) agent parameters, state arrays, logging vars --
         self.agent_params = {
-            0: dict(min_energy_to_speak=0.5, energy_decay=0.05,
-                    energy_gain=0.04, max_speaking_time=5, phonemes_per_step=3),
-            1: dict(min_energy_to_speak=0.5, energy_decay=0.50,
-                    energy_gain=0.05, max_speaking_time=5, phonemes_per_step=3),
-            2: dict(min_energy_to_speak=0.9, energy_decay=0.20,
-                    energy_gain=0.06, max_speaking_time=5, phonemes_per_step=3),
+            0: dict(
+                min_energy_to_speak=0.5,
+                energy_decay=0.05,
+                energy_gain=0.04,
+                max_speaking_time=5,
+                phonemes_per_step=3,
+            ),
+            1: dict(
+                min_energy_to_speak=0.5,
+                energy_decay=0.50,
+                energy_gain=0.05,
+                max_speaking_time=5,
+                phonemes_per_step=3,
+            ),
+            2: dict(
+                min_energy_to_speak=0.9,
+                energy_decay=0.20,
+                energy_gain=0.06,
+                max_speaking_time=5,
+                phonemes_per_step=3,
+            ),
         }
-        self.energy         = np.zeros(3)
-        self.speaking_time  = np.zeros(3)
-        self.phonemes       = np.zeros(3, dtype=int)
+        self.energy = np.zeros(3)
+        self.speaking_time = np.zeros(3)
+        self.phonemes = np.zeros(3, dtype=int)
         self.current_speaker = -1
-        self.step_counter    = 0
-        self.action_stats    = np.zeros(len(ACTIONS), dtype=int)
+        self.step_counter = 0
+        self.action_stats = np.zeros(len(ACTIONS), dtype=int)
         self.gini_history, self.phoneme_history, self.env_reward = [], [], []
 
         if logfile:
@@ -86,20 +115,28 @@ class GuestEnv(gym.Env):
         # 1 energy
         obs.extend(self.energy)
         # 2 speaking-ratios
-        obs.extend([min(1.0, self.speaking_time[i] /
-                        self.agent_params[i]['max_speaking_time']) for i in range(3)])
+        obs.extend(
+            [
+                min(
+                    1.0,
+                    self.speaking_time[i] / self.agent_params[i]["max_speaking_time"],
+                )
+                for i in range(3)
+            ]
+        )
         # 3 phoneme distribution
         total_p = np.sum(self.phonemes)
-        obs.extend(self.phonemes / total_p if total_p else np.ones(3)/3)
+        obs.extend(self.phonemes / total_p if total_p else np.ones(3) / 3)
         # 4 current speaker one-hot
-        speaker_enc = np.zeros(4); speaker_enc[(self.current_speaker+1)] = 1
+        speaker_enc = np.zeros(4)
+        speaker_enc[(self.current_speaker + 1)] = 1
         obs.extend(speaker_enc)
         # 5 gini
         obs.append(self._gini())
         # 6 phoneme std / range
         if total_p:
-            phon_std = np.std(self.phonemes) / (total_p/3)
-            phon_rng = (np.max(self.phonemes) - np.min(self.phonemes)) / (total_p/3)
+            phon_std = np.std(self.phonemes) / (total_p / 3)
+            phon_rng = (np.max(self.phonemes) - np.min(self.phonemes)) / (total_p / 3)
         else:
             phon_std = phon_rng = 0.0
         obs.extend([phon_std, phon_rng])
@@ -110,7 +147,8 @@ class GuestEnv(gym.Env):
     # =============================  GINI (unchanged) ===================== #
     def _gini(self) -> float:
         total = np.sum(self.phonemes)
-        if total == 0: return 0.0
+        if total == 0:
+            return 0.0
         diffs = np.abs(self.phonemes[:, None] - self.phonemes).sum()
         return diffs / (2 * len(self.phonemes) * total)
 
@@ -122,21 +160,26 @@ class GuestEnv(gym.Env):
         # energy init
         if self.energy_imbalance:
             base = 0.5
-            self.energy = np.array([
-                base*(1-self.energy_imbalance), base, base*(1+self.energy_imbalance)])
+            self.energy = np.array(
+                [
+                    base * (1 - self.energy_imbalance),
+                    base,
+                    base * (1 + self.energy_imbalance),
+                ]
+            )
         else:
             self.energy = self.rng.uniform(0.4, 0.6, 3)
 
         # clear dynamic vars
         self.speaking_time[:] = 0
-        self.phonemes[:]      = 0
-        self.current_speaker  = -1
-        self.step_counter     = 0
-        self.action_stats[:]  = 0
+        self.phonemes[:] = 0
+        self.current_speaker = -1
+        self.step_counter = 0
+        self.action_stats[:] = 0
         self.gini_history.clear()
         self.phoneme_history.clear()
         # soft-max trackers
-        self.engagement[:]    = 0.5
+        self.engagement[:] = 0.5
         self.silence_streak[:] = 0
 
         return self._get_obs(), {}
@@ -147,16 +190,20 @@ class GuestEnv(gym.Env):
         self.action_stats[action] += 1
 
         # -------- 1. moderator action effects on ENERGY & ENGAGEMENT ---- #
-        if action == 1 and self.current_speaker != -1:            # stop
+        if action == 1 and self.current_speaker != -1:  # stop
             self.energy[self.current_speaker] = 0.0
             self.current_speaker = -1
-        elif 2 <= action <= 4:                                    # stare_at
+        elif 2 <= action <= 4:  # stare_at
             tgt = action - 2
-            self.energy[tgt] = min(1.0, self.energy[tgt] + 0.2*(1-self.imbalance_factor))
-        elif action in ENCOURAGE_ACTIONS:                         # encourage
+            self.energy[tgt] = min(
+                1.0, self.energy[tgt] + 0.2 * (1 - self.imbalance_factor)
+            )
+        elif action in ENCOURAGE_ACTIONS:  # encourage
             tgt = action - 5
             if self.current_speaker == -1:
-                self.energy[tgt] = min(1.0, self.energy[tgt] + 0.3*(1-self.imbalance_factor))
+                self.energy[tgt] = min(
+                    1.0, self.energy[tgt] + 0.3 * (1 - self.imbalance_factor)
+                )
                 self.engagement[tgt] = min(1.0, self.engagement[tgt] + ENG_BOOST)
 
         # -------- 2. update engagement decay  -------------------------- #
@@ -166,25 +213,31 @@ class GuestEnv(gym.Env):
         for i in range(3):
             p = self.agent_params[i]
             if i != self.current_speaker:
-                gain = p['energy_gain'] * (1 + self.imbalance_factor*(i-1))
+                gain = p["energy_gain"] * (1 + self.imbalance_factor * (i - 1))
                 self.energy[i] = min(1.0, self.energy[i] + gain)
             else:
-                self.energy[i] = max(0.0, self.energy[i] - p['energy_decay'])
+                self.energy[i] = max(0.0, self.energy[i] - p["energy_decay"])
 
         # -------- 4. select speaker (✨ soft-max) ----------------------- #
         if self.current_speaker == -1:
             # candidates who satisfy min_energy
-            cands = [i for i in range(3) if self.energy[i] >=
-                     self.agent_params[i]['min_energy_to_speak']]
+            cands = [
+                i
+                for i in range(3)
+                if self.energy[i] >= self.agent_params[i]["min_energy_to_speak"]
+            ]
             if cands:
                 # scores only for candidates, −inf for others
                 scores = np.full(3, -np.inf)
                 streak_norm = np.clip(self.silence_streak / MAX_STREAK, 0, 1)
-                scores_cand = (ALPHA*self.talk_prior[cands] +
-                               BETA *self.engagement[cands] +
-                               GAMMA*streak_norm[cands])
+                scores_cand = (
+                    ALPHA * self.talk_prior[cands]
+                    + BETA * self.engagement[cands]
+                    + GAMMA * streak_norm[cands]
+                )
                 scores[cands] = scores_cand
-                probs = np.exp(scores/TAU); probs /= probs.sum()
+                probs = np.exp(scores / TAU)
+                probs /= probs.sum()
                 self.current_speaker = self.rng.choice(3, p=probs)
                 self.speaking_time[self.current_speaker] = 0
                 # reset fairness timer
@@ -192,8 +245,10 @@ class GuestEnv(gym.Env):
         else:
             p = self.agent_params[self.current_speaker]
             self.speaking_time[self.current_speaker] += 1
-            if (self.speaking_time[self.current_speaker] >= p['max_speaking_time'] or
-                    self.energy[self.current_speaker] < p['min_energy_to_speak']):
+            if (
+                self.speaking_time[self.current_speaker] >= p["max_speaking_time"]
+                or self.energy[self.current_speaker] < p["min_energy_to_speak"]
+            ):
                 self.current_speaker = -1
 
         # -------- 5. silence streak update ----------------------------- #
@@ -203,21 +258,21 @@ class GuestEnv(gym.Env):
 
         # -------- 6. phoneme accumulation (unchanged) ------------------ #
         if self.current_speaker != -1:
-            inc = self.agent_params[self.current_speaker]['phonemes_per_step']
+            inc = self.agent_params[self.current_speaker]["phonemes_per_step"]
             self.phonemes[self.current_speaker] += inc
 
         # -------- 7. reward  (unchanged) ------------------------------- #
-        gini   = self._gini()
+        gini = self._gini()
         reward = 1.0 - gini
         if self.reward_shaping and self.current_speaker != -1:
             if self.speaking_time[self.current_speaker] == 1:
                 reward += 0.2
             p = self.agent_params[self.current_speaker]
-            if self.speaking_time[self.current_speaker] > p['max_speaking_time']*0.8:
+            if self.speaking_time[self.current_speaker] > p["max_speaking_time"] * 0.8:
                 reward -= 0.1
 
         terminated = False
-        truncated  = self.step_counter >= self.max_steps
+        truncated = self.step_counter >= self.max_steps
         obs = self._get_obs()
 
         # history (for plotting / logging)
@@ -225,12 +280,15 @@ class GuestEnv(gym.Env):
         self.phoneme_history.append(self.phonemes.copy())
         self.env_reward.append(reward)
 
-        info = dict(num_of_step_env=self.step_counter,
-                    phoneme=self.phonemes.copy(),
-                    actions_stats=self.action_stats.copy(),
-                    env_reward=reward,
-                    action_number=int(action))
+        info = dict(
+            num_of_step_env=self.step_counter,
+            phoneme=self.phonemes.copy(),
+            actions_stats=self.action_stats.copy(),
+            env_reward=reward,
+            action_number=int(action),
+        )
         return obs, reward, terminated, truncated, info
+
 
 # =======================================================================
 # -----------------------  Quick demo & plot  ---------------------------
