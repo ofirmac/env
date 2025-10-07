@@ -46,7 +46,8 @@ class CallbackPerEpisode(BaseCallback):
         # Episode-wise step data (for detailed episode plots)
         self.episodes_step_data = []
         self.current_episode_data = {
-            'rewards': [],
+            'rewards': [],           # PPO rewards (with shaping)
+            'env_rewards': [],       # Base environment rewards
             'phonemes': [],
             'gini': [],
             'actions': [],
@@ -76,13 +77,16 @@ class CallbackPerEpisode(BaseCallback):
             # Get metrics from info with safe extraction
             phonemes = self._safe_get_metric(info, "phoneme", [0, 0, 0])
             gini_history = self._safe_get_metric(info, "gini_history", [])
-            current_gini = gini_history[-1] if gini_history else 0
+            current_gini = self._safe_get_metric(info, "current_gini", 0)  # FIXED: Use direct gini value
             action_number = self._safe_get_metric(info, "action_number", -1)
-            env_reward = self._safe_get_metric(info, "env_reward", 0)
+            env_reward = self._safe_get_metric(info, "env_reward", 0)  # Base reward without shaping
+            total_reward = self._safe_get_metric(info, "total_reward", reward)  # FIXED: Total reward with shaping
             energy = self._safe_get_metric(info, "energy", [0, 0, 0])
             
             # Store step data for current episode
-            self.current_episode_data['rewards'].append(reward)
+            # FIXED: Store the actual reward used by PPO (includes shaping)
+            self.current_episode_data['rewards'].append(reward)  # PPO reward (with shaping)
+            self.current_episode_data['env_rewards'].append(env_reward)  # Base environment reward
             self.current_episode_data['phonemes'].append(phonemes.copy() if isinstance(phonemes, list) else list(phonemes))
             self.current_episode_data['gini'].append(current_gini)
             self.current_episode_data['actions'].append(action_number)
@@ -92,9 +96,11 @@ class CallbackPerEpisode(BaseCallback):
             # Log step-level metrics
             global_step = self.num_timesteps
             
-            # Rewards
-            self.writer.add_scalar('Step/Reward', reward, global_step)
-            self.writer.add_scalar('Step/EnvReward', env_reward, global_step)
+            # FIXED: Log both PPO reward and environment reward for comparison
+            self.writer.add_scalar('Step/PPO_Reward', reward, global_step)  # Total reward used by PPO
+            self.writer.add_scalar('Step/Env_Reward', env_reward, global_step)  # Base environment reward
+            if total_reward != reward:
+                self.writer.add_scalar('Step/Total_Reward', total_reward, global_step)  # In case there's a difference
             
             # Dynamic agent handling for phonemes
             num_agents = len(phonemes) if isinstance(phonemes, (list, np.ndarray)) else 3
@@ -218,7 +224,8 @@ class CallbackPerEpisode(BaseCallback):
         self.current_episode_reward = 0
         self.current_episode_steps = 0
         self.current_episode_data = {
-            'rewards': [],
+            'rewards': [],           # PPO rewards (with shaping)
+            'env_rewards': [],       # FIXED: Base environment rewards
             'phonemes': [],
             'gini': [],
             'actions': [],
@@ -323,8 +330,10 @@ class CallbackPerEpisode(BaseCallback):
         
         fig.suptitle(f'Episode {episode_idx + 1} - Step-by-Step Analysis', fontsize=16)
         
-        # Plot 1: Rewards over steps
-        ax1.plot(steps, episode_data['rewards'], 'b-', alpha=0.7, label='Step Reward')
+        # Plot 1: Rewards over steps - FIXED to show both reward types
+        ax1.plot(steps, episode_data['rewards'], 'b-', alpha=0.7, label='PPO Reward (with shaping)')
+        if 'env_rewards' in episode_data and episode_data['env_rewards']:
+            ax1.plot(steps, episode_data['env_rewards'], 'r-', alpha=0.7, label='Environment Reward (base)')
         ax1.set_xlabel('Step')
         ax1.set_ylabel('Reward')
         ax1.set_title('Rewards per Step')

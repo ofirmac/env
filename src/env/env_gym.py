@@ -233,7 +233,8 @@ class GuestEnv(gym.Env):
 
         # Calculate reward
         gini = self._gini()
-        reward = 1.0 - gini  # Base reward on equality
+        base_reward = 1.0 - gini  # Base reward on equality
+        reward = base_reward  # Start with base reward
 
         if self.reward_shaping:
             # Additional reward shaping
@@ -256,15 +257,19 @@ class GuestEnv(gym.Env):
             num_of_step_env=self.step_counter,
             phoneme=self.phonemes.copy(),
             actions_stats=self.action_stats.copy(),
-            env_reward=1.0 - gini,
+            env_reward=base_reward,  # Base reward without shaping
+            total_reward=reward,     # FIXED: Total reward including shaping
+            reward_shaping_active=self.reward_shaping,
+            current_gini=gini,       # FIXED: Direct gini value
             action_number=int(action),
             gini_history=self.gini_history,
             phoneme_history=self.phoneme_history,
-            energy=self.energy,
+            energy=self.energy.copy(),
         )
         
-        self.gini_history.append(1.0 - info["env_reward"])
-        self.env_reward.append(info["env_reward"])
+        # FIXED: Store actual gini coefficient, not inverted
+        self.gini_history.append(gini)
+        self.env_reward.append(base_reward)
         self.phoneme_history.append(self.phonemes.copy())
         
         self._tick_encourage_buffs()
