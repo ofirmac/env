@@ -71,20 +71,21 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = os.path.join(os.ge
     model = PPO(
         policy="MlpPolicy",
         env=env,
-        learning_rate=5e-4,         # stronger updates
-        n_steps=MAX_STEPS,
-        batch_size=MAX_STEPS,         # full-episode batch
-        n_epochs=5,                 # fewer epochs (avoid overfitting critic)
+        learning_rate=1e-3,         # stronger updates
+        n_steps=256,
+        batch_size=2048,         # full-episode batch
+        n_epochs=10,                 # fewer epochs (avoid overfitting critic)
         gamma=0.995,
         gae_lambda=0.95,
-        clip_range=0.3,             # looser clipping
-        ent_coef=0.005,             # weaker entropy
-        vf_coef=0.7,                # reduce critic dominance
+        clip_range=0.25,             # looser clipping
+        ent_coef=0.01,             # weaker entropy
+        vf_coef=0.5,                # reduce critic dominance
         clip_range_vf=0.2,          # clip critic updates
         max_grad_norm=0.5,
         tensorboard_log=tensorboard_log,
         seed=42,
         verbose=1,
+        device="cuda",
     )
 
     
@@ -105,16 +106,25 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = os.path.join(os.ge
         callback=callback,
         tb_log_name="PPO_GuestEnv"
     )
-    
-    # Save the model
-    date_str = datetime.now().strftime("%Y%m%d")    
-    model.save(os.path.join(results_dir, f"ppo_guest_train_{date_str}"))
 
-    # Plot all episodes (if you have few episodes)
-    callback.save_data(f"{results_dir}/train_{date_str}.pkl")
+    date_str = datetime.now().strftime("%Y%m%d") 
+    try:
+        model.save(os.path.join(results_dir, f"ppo_guest_train_{date_str}"))
+    except Exception as e:
+        print(f"[WARN] Model save failed: {e}")
+        # Still persist per-episode data so you can plot later
+    finally:
+        callback.save_data(f"{results_dir}/train_{date_str}.pkl")
+
+    # # Save the model
+    # date_str = datetime.now().strftime("%Y%m%d")    
+    # model.save(os.path.join(results_dir, f"ppo_guest_train_{date_str}"))
+
+    # # Plot all episodes (if you have few episodes)
+    # callback.save_data(f"{results_dir}/train_{date_str}.pkl")
 
     print(f"Training completed! Results saved to: {results_dir}")
-    print(f"Total episodes: {callback.episode_count}")
+    print(f"Total episodes: {callback.episode_count}") 
     if callback.episode_rewards:
         avg = [i/MAX_STEPS for i in callback.episode_rewards]
         print(f"Average episode reward: {np.mean(avg):.3f}")
@@ -124,5 +134,5 @@ if __name__ == "__main__":
     date_str = datetime.now().strftime("%Y_%m_%d")
     print(f"{date_str}")
     # Use current working directory for results
-    results_dir = os.path.join(os.getcwd(), "src", "test_result", f"train_result_{date_str}_{MAX_STEPS=}_{MAX_EPISODE=}")
+    results_dir = os.path.join(os.getcwd(), "src", "test_result", f"train_result_{date_str}_{MAX_STEPS=}_{MAX_EPISODE=}_2")
     train(results_dir=results_dir)

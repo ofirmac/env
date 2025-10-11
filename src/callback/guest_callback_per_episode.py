@@ -26,7 +26,7 @@ class CallbackPerEpisode(BaseCallback):
         max_stored_episodes: Maximum episodes to store for plotting (memory limit)
     """
     @logger.catch
-    def __init__(self, log_dir: str = "./tensorboard_logs/", max_stored_episodes: int = 1000) -> None:
+    def __init__(self, log_dir: str = "./tensorboard_logs/", max_stored_episodes: int = 10_000) -> None:
         super().__init__()
         self.log_dir = log_dir
         self.writer = None
