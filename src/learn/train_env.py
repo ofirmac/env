@@ -71,20 +71,21 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = os.path.join(os.ge
     model = PPO(
         policy="MlpPolicy",
         env=env,
-        learning_rate=5e-4,         # stronger updates
-        n_steps=MAX_STEPS,
-        batch_size=MAX_STEPS,         # full-episode batch
+        learning_rate=1e-3,         # stronger updates
+        n_steps=256,
+        batch_size=2048,         # full-episode batch
         n_epochs=5,                 # fewer epochs (avoid overfitting critic)
         gamma=0.995,
         gae_lambda=0.95,
-        clip_range=0.3,             # looser clipping
-        ent_coef=0.005,             # weaker entropy
-        vf_coef=0.7,                # reduce critic dominance
+        clip_range=0.25,             # looser clipping
+        ent_coef=0.01,             # weaker entropy
+        vf_coef=0.5,                # reduce critic dominance
         clip_range_vf=0.2,          # clip critic updates
         max_grad_norm=0.5,
         tensorboard_log=tensorboard_log,
         seed=42,
         verbose=1,
+        
     )
 
     
