@@ -362,7 +362,7 @@ class GuestEnv(gym.Env):
 
         # record the buff so we can roll it back after N steps
         buff = {"amount": float(delta), "remaining": int(self.encourage_duration_steps)}
-
+        logger.info(f"{buff=}")
         if self.encourage_stack:
             self._encourage_buffs[target].append(buff)
         else:
