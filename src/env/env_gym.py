@@ -63,6 +63,8 @@ class GuestEnv(gym.Env):
         encourage_base_effect: float = 0.9,
         encourage_duration_steps: int = 10,
         encourage_stack: bool = True,
+        env_effect: bool = False,
+        env_effect_encourage_step: int = 10
     ):  # 0.0 to 1.0, controls initial energy imbalance
         super().__init__()
         self.max_steps = max_steps
@@ -128,6 +130,10 @@ class GuestEnv(gym.Env):
         self.env_reward = []
         self.phoneme_history = []
 
+        self.env_effect = env_effect
+        self.env_effect_step = 1/max_steps
+        self.env_effect_encourage_step = env_effect_encourage_step
+
         if logfile:
             logger.add("guest_{time:YYYY-MM-DD}.log", enqueue=True)
 
@@ -183,8 +189,10 @@ class GuestEnv(gym.Env):
         logger.debug(f"{self.current_speaker=}")
         if 1 <= action <= 3:  # stare_at
             target = action - 1
-            effect = 0.01 * (1 - self.imbalance_factor)
+            effect = 0.01 * (1 - self.imbalance_factor) if not self.env_effect else self.env_effect_step
+            logger.info(f"{effect=}")
             self.energy[target] = min(1.0, self.energy[target] + effect)
+            logger.info(f"{self.energy[target]=}")
         elif 4 <= action <= 6:  # encourage
             target = action - 4
             self._apply_encourage(target)
@@ -350,7 +358,7 @@ class GuestEnv(gym.Env):
     def _apply_encourage(self, target: int) -> None:
         """Apply a temporary encourage buff to `target`."""
 
-        effect = self.encourage_base_effect * (1 - self.imbalance_factor)
+        effect = self.encourage_base_effect * (1 - self.imbalance_factor) if not self.env_effect else (self.env_effect_step * self.env_effect_encourage_step)
         delta = effect
         # headroom = 1.0 - float(self.energy[target])
         # delta = max(0.0, min(effect, headroom))
@@ -358,6 +366,7 @@ class GuestEnv(gym.Env):
         #     return
 
         # apply now
+        logger.info(f"{delta=}")
         self.energy[target] = min(1.0, float(self.energy[target]) + delta)
 
         # record the buff so we can roll it back after N steps
