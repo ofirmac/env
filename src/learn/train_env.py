@@ -96,6 +96,8 @@ class TrainingConfig:
     eval_freq: int = 10000
     save_freq: int = 50000
     eval_episodes: int = 10
+    test_after_training: bool = True
+    test_episodes: int = 50
     use_tensorboard: bool = True
     verbose: int = 1
 
@@ -406,11 +408,174 @@ class Trainer:
         print(f"Checkpoints: {self.checkpoints_dir}")
         print(f"Logs: {self.logs_dir}")
 
-        # Clean up
+        # Clean up training environments
         train_env.close()
         eval_env.close()
 
+        # Test the trained policy
+        if self.train_config.test_after_training:
+            test_results = self.test_policy(
+                num_test_episodes=self.train_config.test_episodes,
+                deterministic=True,
+            )
+
         return model
+
+    def test_policy(
+        self,
+        model_path: Optional[Path] = None,
+        num_test_episodes: int = 50,
+        deterministic: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Test the trained policy comprehensively
+
+        Args:
+            model_path: Path to model to test (default: best_model)
+            num_test_episodes: Number of test episodes
+            deterministic: Use deterministic policy
+
+        Returns:
+            Dictionary with test results
+        """
+        print("\n" + "=" * 70)
+        print("TESTING TRAINED POLICY")
+        print("=" * 70)
+
+        # Determine which model to test
+        if model_path is None:
+            model_path = self.results_dir / "best_model" / "best_model.zip"
+            if not model_path.exists():
+                # Fallback to final model
+                final_models = list(self.results_dir.glob("final_model_*"))
+                if final_models:
+                    model_path = final_models[-1]
+                else:
+                    print("❌ No model found to test!")
+                    return {}
+
+        print(f"Testing model: {model_path}")
+        print(f"Test episodes: {num_test_episodes}")
+        print(f"Deterministic: {deterministic}")
+
+        # Create test environment
+        test_env = create_vectorized_env(self.env_config, num_envs=1, use_subprocess=False)
+
+        # Load model
+        model = PPO.load(model_path)
+
+        # Run test episodes
+        episode_rewards = []
+        episode_ginis = []
+        episode_lengths = []
+        episode_phonemes = []
+        action_counts = np.zeros(7)  # 7 actions
+
+        print("\nRunning test episodes...")
+        for episode in range(num_test_episodes):
+            obs = test_env.reset()
+            done = False
+            episode_reward = 0
+            episode_length = 0
+            episode_gini_sum = 0
+            gini_count = 0
+
+            while not done:
+                action, _states = model.predict(obs, deterministic=deterministic)
+                obs, reward, done, info = test_env.step(action)
+
+                episode_reward += reward[0]
+                episode_length += 1
+                action_counts[action[0]] += 1
+
+                # Track gini if available
+                if 'current_gini' in info[0]:
+                    episode_gini_sum += info[0]['current_gini']
+                    gini_count += 1
+
+            episode_rewards.append(episode_reward)
+            episode_lengths.append(episode_length)
+
+            if gini_count > 0:
+                episode_ginis.append(episode_gini_sum / gini_count)
+
+            if 'phoneme' in info[0]:
+                episode_phonemes.append(info[0]['phoneme'].copy())
+
+            # Progress indicator
+            if (episode + 1) % 10 == 0:
+                print(f"  Completed {episode + 1}/{num_test_episodes} episodes...")
+
+        # Calculate statistics
+        results = {
+            'num_episodes': num_test_episodes,
+            'mean_reward': float(np.mean(episode_rewards)),
+            'std_reward': float(np.std(episode_rewards)),
+            'min_reward': float(np.min(episode_rewards)),
+            'max_reward': float(np.max(episode_rewards)),
+            'mean_length': float(np.mean(episode_lengths)),
+            'action_distribution': (action_counts / action_counts.sum()).tolist(),
+            'action_counts': action_counts.tolist(),
+        }
+
+        if episode_ginis:
+            results['mean_gini'] = float(np.mean(episode_ginis))
+            results['std_gini'] = float(np.std(episode_ginis))
+            results['min_gini'] = float(np.min(episode_ginis))
+            results['max_gini'] = float(np.max(episode_ginis))
+
+        if episode_phonemes:
+            # Calculate phoneme balance statistics
+            phoneme_array = np.array(episode_phonemes)
+            mean_phonemes = phoneme_array.mean(axis=0)
+            results['mean_phonemes'] = mean_phonemes.tolist()
+            results['phoneme_std'] = phoneme_array.std(axis=0).tolist()
+
+            # Calculate balance metric (coefficient of variation)
+            phoneme_totals = phoneme_array.sum(axis=1)
+            phoneme_stds = phoneme_array.std(axis=1)
+            balance_metric = phoneme_stds / (phoneme_totals / 3)
+            results['balance_metric_mean'] = float(np.mean(balance_metric))
+            results['balance_metric_std'] = float(np.std(balance_metric))
+
+        # Save results
+        results_path = self.results_dir / "test_results.json"
+        with open(results_path, "w") as f:
+            json.dump(results, f, indent=2)
+
+        # Print results
+        print("\n" + "=" * 70)
+        print("TEST RESULTS")
+        print("=" * 70)
+        print(f"\n📊 Performance Metrics:")
+        print(f"  Mean reward:     {results['mean_reward']:.2f} ± {results['std_reward']:.2f}")
+        print(f"  Reward range:    [{results['min_reward']:.2f}, {results['max_reward']:.2f}]")
+        print(f"  Mean ep length:  {results['mean_length']:.1f} steps")
+
+        if 'mean_gini' in results:
+            print(f"\n⚖️  Balance Metrics:")
+            print(f"  Mean Gini:       {results['mean_gini']:.4f} ± {results['std_gini']:.4f}")
+            print(f"  Gini range:      [{results['min_gini']:.4f}, {results['max_gini']:.4f}]")
+            print(f"  (Lower is better - 0.0 = perfect balance)")
+
+        if 'mean_phonemes' in results:
+            print(f"\n🗣️  Phoneme Distribution:")
+            for i, count in enumerate(results['mean_phonemes']):
+                print(f"  Agent {i}:        {count:.1f} phonemes/episode")
+            print(f"\n  Balance metric:  {results['balance_metric_mean']:.4f} ± {results['balance_metric_std']:.4f}")
+            print(f"  (Lower is better - 0.0 = perfect balance)")
+
+        print(f"\n🎯 Action Distribution:")
+        actions = ['wait', 'stare_0', 'stare_1', 'stare_2', 'encourage_0', 'encourage_1', 'encourage_2']
+        for i, (action, pct) in enumerate(zip(actions, results['action_distribution'])):
+            bar = '█' * int(pct * 50)
+            print(f"  {action:12s}: {bar:50s} {pct*100:5.1f}%")
+
+        print(f"\n✅ Test results saved to: {results_path}")
+        print("=" * 70)
+
+        test_env.close()
+        return results
 
 
 # ============================================================================
@@ -422,6 +587,14 @@ def main():
     parser = argparse.ArgumentParser(
         description="Professional RL Training for GuestEnv",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+
+    # Mode selection
+    parser.add_argument(
+        "--test-only",
+        type=str,
+        metavar="MODEL_PATH",
+        help="Test a trained model without training (provide path to .zip model file)"
     )
 
     # Preset or custom config
@@ -456,7 +629,21 @@ def main():
     parser.add_argument("--no-tensorboard", action="store_true", help="Disable TensorBoard logging")
     parser.add_argument("--reward-shaping", action="store_true", help="Enable reward shaping")
 
+    # Testing arguments
+    parser.add_argument("--no-test", action="store_true", help="Skip testing after training")
+    parser.add_argument("--test-episodes", type=int, help="Number of test episodes (default: 50)")
+
     args = parser.parse_args()
+
+    # Handle test-only mode
+    if args.test_only:
+        test_episodes = args.test_episodes if args.test_episodes else 50
+        test_only(
+            model_path=args.test_only,
+            test_episodes=test_episodes,
+            preset=args.preset,
+        )
+        return
 
     # Load preset configuration
     env_config, ppo_config, train_config = get_config_preset(args.preset)
@@ -477,6 +664,10 @@ def main():
         train_config.use_tensorboard = False
     if args.reward_shaping:
         env_config.reward_shaping = True
+    if args.no_test:
+        train_config.test_after_training = False
+    if args.test_episodes:
+        train_config.test_episodes = args.test_episodes
 
     # Determine results directory
     if args.results_dir:
@@ -495,6 +686,47 @@ def main():
     )
 
     trainer.train()
+
+
+def test_only(model_path: str, test_episodes: int = 50, preset: str = "default"):
+    """
+    Test a trained model without training
+
+    Args:
+        model_path: Path to saved model (.zip file)
+        test_episodes: Number of test episodes
+        preset: Environment preset to use
+    """
+    print("\n" + "=" * 70)
+    print("STANDALONE POLICY TESTING")
+    print("=" * 70)
+
+    # Load configuration
+    env_config, ppo_config, train_config = get_config_preset(preset)
+
+    # Create results directory for test
+    model_path_obj = Path(model_path)
+    if not model_path_obj.exists():
+        print(f"❌ Model not found: {model_path}")
+        return
+
+    results_dir = model_path_obj.parent.parent / "test_only_results"
+    results_dir.mkdir(exist_ok=True)
+
+    # Create trainer just for testing
+    trainer = Trainer(
+        env_config=env_config,
+        ppo_config=ppo_config,
+        train_config=train_config,
+        results_dir=results_dir,
+    )
+
+    # Run test
+    trainer.test_policy(
+        model_path=model_path_obj,
+        num_test_episodes=test_episodes,
+        deterministic=True,
+    )
 
 
 if __name__ == "__main__":
