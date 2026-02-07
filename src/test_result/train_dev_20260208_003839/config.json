@@ -1,0 +1,50 @@
+{
+  "env_config": {
+    "max_steps": 200,
+    "reward_shaping": false,
+    "env_effect": false,
+    "efficiency": false,
+    "randomize_agent": false,
+    "seed": 42,
+    "agent_0_min_energy": 0.2,
+    "agent_0_energy_gain": 0.002,
+    "agent_0_energy_decay": 0.08,
+    "agent_0_max_speaking": 6,
+    "agent_0_phonemes": 4,
+    "agent_1_min_energy": 0.55,
+    "agent_1_energy_gain": 0.01,
+    "agent_1_energy_decay": 0.05,
+    "agent_1_max_speaking": 8,
+    "agent_1_phonemes": 5,
+    "agent_2_min_energy": 0.85,
+    "agent_2_energy_gain": 0.028,
+    "agent_2_energy_decay": 0.03,
+    "agent_2_max_speaking": 12,
+    "agent_2_phonemes": 6
+  },
+  "ppo_config": {
+    "learning_rate": 0.0003,
+    "n_steps": 512,
+    "batch_size": 128,
+    "n_epochs": 3,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.01,
+    "vf_coef": 0.5,
+    "clip_range_vf": null,
+    "max_grad_norm": 0.5,
+    "seed": 42,
+    "device": "auto"
+  },
+  "training_config": {
+    "total_episodes": 1,
+    "num_parallel_envs": 1,
+    "eval_freq": 5000,
+    "save_freq": 10000,
+    "eval_episodes": 10,
+    "use_tensorboard": false,
+    "verbose": 1
+  },
+  "timestamp": "2026-02-08T00:38:39.689406"
+}
