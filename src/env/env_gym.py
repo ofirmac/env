@@ -11,6 +11,7 @@ import sys
 import random
 import os
 from datetime import datetime
+import math
 
 logger.remove()
 logger.add(
@@ -55,16 +56,18 @@ class GuestEnv(gym.Env):
         self,
         *,
         max_steps: int = 600,
-        seed: int = 42,
+        seed = 42,
         imbalance_factor: float = 0.0,  # 0.0 to 1.0, controls natural imbalance
         energy_imbalance: float = 0.0,
-        reward_shaping=True,
+        reward_shaping=False,
         logfile=False,
         encourage_base_effect: float = 0.9,
         encourage_duration_steps: int = 10,
         encourage_stack: bool = True,
-        env_effect: bool = False,
-        env_effect_encourage_step: int = 10
+        env_effect: bool = True,
+        env_effect_encourage_step: int = 10,
+        efficiency: bool = False,
+        randomize_agent: bool = False 
     ):  # 0.0 to 1.0, controls initial energy imbalance
         super().__init__()
         self.max_steps = max_steps
@@ -73,6 +76,8 @@ class GuestEnv(gym.Env):
         self.imbalance_factor = imbalance_factor  # It gives you a single knob (imbalance_factor) to favor “higher-index” agents (2) over “lower-index” ones (0), with agent 1 in the middle.
         self.energy_imbalance = energy_imbalance
         self.reward_shaping = reward_shaping
+        self.efficiency = efficiency
+        self.randomize_agent = randomize_agent
 
         # Action space: 7 discrete Guest actions
         self.action_space = spaces.Discrete(len(ACTIONS))
@@ -141,6 +146,8 @@ class GuestEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=self.seed)
         self.rng = np.random.default_rng(self.seed)
+        if self.randomize_agent:
+            self._randomize_params()
 
         # Initialize with imbalanced energy levels if specified
         if self.energy_imbalance > 0:
@@ -159,6 +166,7 @@ class GuestEnv(gym.Env):
             # self.energy = self.rng.uniform(0.01, 0.6, size=3)
             logger.info(f"{self.energy=}")
 
+        logger.info(f"{self.agent_params=}")
         self.speaking_time = np.zeros(len(self.agent_params))
         self.phonemes = np.zeros(len(self.agent_params), dtype=int)
         self.current_speaker = -1
@@ -180,7 +188,7 @@ class GuestEnv(gym.Env):
         )
         return obs, info
 
-    @logger.catch
+    @logger.catch(reraise=True)
     def step(self, action: int):
         self.step_counter += 1
         self.action_stats[action] += 1
@@ -190,9 +198,9 @@ class GuestEnv(gym.Env):
         if 1 <= action <= 3:  # stare_at
             target = action - 1
             effect = 0.01 * (1 - self.imbalance_factor) if not self.env_effect else self.env_effect_step
-            logger.info(f"{effect=}")
+            logger.debug(f"{effect=}") # TODO remove
             self.energy[target] = min(1.0, self.energy[target] + effect)
-            logger.info(f"{self.energy[target]=}")
+            logger.debug(f"{self.energy[target]=}") # TODO remove
         elif 4 <= action <= 6:  # encourage
             target = action - 4
             self._apply_encourage(target)
@@ -221,6 +229,8 @@ class GuestEnv(gym.Env):
 
             if len(candidates) > 0:
                 # Choose speaker with highest energy
+                if not any(self.energy): 
+                    logger.info(f"{self.energy=} - step {self.step}")
                 choose_speaker = self._random_sample(self.energy)
                 self.current_speaker = choose_speaker
                 # self.current_speaker = candidates[np.argmax(self.energy[candidates])]
@@ -243,22 +253,27 @@ class GuestEnv(gym.Env):
             ]["phonemes_per_step"]
 
         # Calculate reward
+        efficiency = self._calculate_efficiency()
         gini = self._gini()
         base_reward = 1.0 - gini  # Base reward on equality
         reward = base_reward  # Start with base reward
 
+        if self.efficiency:
+            reward = base_reward *efficiency  # Scale by efficiency
         if self.reward_shaping:
-            # Additional reward shaping
-            if self.current_speaker != -1:
-                # Bonus for new speaker
-                if self.speaking_time[self.current_speaker] == 1:
-                    reward += 0.2
-                # Penalty for long speaking turns
-                if (
-                    self.speaking_time[self.current_speaker]
-                    > self.agent_params[self.current_speaker]["max_speaking_time"] * 0.8
-                ):
-                    reward -= 0.1
+            # # Additional reward shaping
+            # if self.current_speaker != -1:
+            #     # Bonus for new speaker
+            #     if self.speaking_time[self.current_speaker] == 1:
+            #         reward += 0.2
+            #     # Penalty for long speaking turns
+            #     if (
+            #         self.speaking_time[self.current_speaker]
+            #         > self.agent_params[self.current_speaker]["max_speaking_time"] * 0.8
+            #     ):
+            #         reward -= 0.1
+            if action == 0:  # wait
+                reward += 0.05  # small penalty for inactivity
 
         terminated = False
         truncated = self.step_counter >= self.max_steps
@@ -355,35 +370,96 @@ class GuestEnv(gym.Env):
         n = len(x)
         return float(diffs / (2 * n * total))
 
+    # def _apply_encourage(self, target: int) -> None:
+    #     """Apply a temporary encourage buff to `target`."""
+
+    #     if not self.env_effect:
+    #         effect = self.encourage_base_effect * (1 - self.imbalance_factor)
+    #     else:
+    #         effect = self.env_effect_step * self.env_effect_encourage_step
+
+    #     headroom = 1.0 - float(self.energy[target])
+    #     delta = max(0.0, min(effect, headroom))
+    #     if delta <= 0.0:
+    #         return
+
+    #     # apply now
+    #     # logger.info(f"{target=}")
+    #     # logger.info(f"{delta=}")
+    #     self.energy[target] = min(0.9, float(self.energy[target]) + delta)
+
+    #     # record the buff so we can roll it back after N steps
+    #     buff = {"amount": float(delta), "remaining": int(self.encourage_duration_steps)}
+    #     # logger.info(f"{buff=}")
+    #     if self.encourage_stack:
+    #         self._encourage_buffs[target].append(buff)
+    #     else:
+    #         # replace any existing buff: first remove them, then set a single new one
+    #         for b in self._encourage_buffs[target]:
+    #             self.energy[target] = max(
+    #                 0.0, min(0.9, float(self.energy[target]) - b["amount"])
+    #             )
+    #         self._encourage_buffs[target] = [buff]
+
+    # def _tick_encourage_buffs(self) -> None:
+    #     """Decrement timers and remove expired buff amounts from energy."""
+    #     for i in range(len(self.agent_params)):
+    #         kept = []
+    #         for b in self._encourage_buffs[i]:
+    #             b["remaining"] -= 1
+    #             if b["remaining"] <= 0:
+    #                 # expire: remove exactly what we added
+    #                 self.energy[i] = max(
+    #                     0.0, min(1.0, float(self.energy[i]) - b["amount"])
+    #                 )
+    #             else:
+    #                 kept.append(b)
+    #         self._encourage_buffs[i] = kept
     def _apply_encourage(self, target: int) -> None:
         """Apply a temporary encourage buff to `target`."""
 
-        effect = self.encourage_base_effect * (1 - self.imbalance_factor) if not self.env_effect else (self.env_effect_step * self.env_effect_encourage_step)
-        delta = effect
-        # headroom = 1.0 - float(self.energy[target])
-        # delta = max(0.0, min(effect, headroom))
-        # if delta <= 0.0:
-        #     return
+        # 1. Compute base effect
+        if not self.env_effect:
+            effect = self.encourage_base_effect * (1 - self.imbalance_factor)
+        else:
+            effect = self.env_effect_step * self.env_effect_encourage_step
 
-        # apply now
-        logger.info(f"{delta=}")
-        self.energy[target] = min(1.0, float(self.energy[target]) + delta)
+        # 2. Respect max energy cap
+        max_energy = 0.9
+        current = float(self.energy[target])
+        headroom = max_energy - current
+        delta = max(0.0, min(effect, headroom))
 
-        # record the buff so we can roll it back after N steps
-        buff = {"amount": float(delta), "remaining": int(self.encourage_duration_steps)}
-        logger.info(f"{buff=}")
+        if delta <= 0.0:
+            return
+
+        # 3. Apply and compute the real applied delta (for perfect rollback)
+        new_energy = current + delta
+        new_energy = min(max_energy, new_energy)
+        delta_applied = new_energy - current
+
+        if delta_applied <= 0.0:
+            return
+
+        self.energy[target] = new_energy
+
+        # 4. Record buff
+        buff = {"amount": float(delta_applied), "remaining": int(self.encourage_duration_steps)}
+
         if self.encourage_stack:
             self._encourage_buffs[target].append(buff)
         else:
-            # replace any existing buff: first remove them, then set a single new one
+            # Remove any existing buffs first
             for b in self._encourage_buffs[target]:
                 self.energy[target] = max(
-                    0.0, min(1.0, float(self.energy[target]) - b["amount"])
+                    0.0, min(max_energy, float(self.energy[target]) - b["amount"])
                 )
             self._encourage_buffs[target] = [buff]
 
+
     def _tick_encourage_buffs(self) -> None:
         """Decrement timers and remove expired buff amounts from energy."""
+        max_energy = 0.9
         for i in range(len(self.agent_params)):
             kept = []
             for b in self._encourage_buffs[i]:
@@ -391,21 +467,166 @@ class GuestEnv(gym.Env):
                 if b["remaining"] <= 0:
                     # expire: remove exactly what we added
                     self.energy[i] = max(
-                        0.0, min(1.0, float(self.energy[i]) - b["amount"])
+                        0.0, min(max_energy, float(self.energy[i]) - b["amount"])
                     )
                 else:
                     kept.append(b)
             self._encourage_buffs[i] = kept
+
     
     def _random_sample(self, energy, agents = [0, 1, 2])-> int :
         #random choise 
-        energies = energy
-        agents = agents
+        energies = [float(energy[i]) for i in agents]
 
+        # Compute total on finite values only
+        finite_energies = [e for e in energies if math.isfinite(e)]
+        total = sum(finite_energies)
+
+        if not math.isfinite(total) or total <= 0:
+            return random.choice(agents)
+        
         # Normalize to probabilities
-        total = sum(energies)
+        # total = sum(energies)
         probs = [e / total for e in energies]
 
         # Sample one agent
         choice = random.choices(agents, weights=probs, k=1)[0]
         return choice
+    
+    def _calculate_efficiency(self) -> float:
+        total_phonemes = np.sum(self.phonemes)
+        
+        # Early episodes: no efficiency penalty
+        if total_phonemes == 0:
+            return 1.0
+        
+        # Calculate ideal phonemes per agent (equal distribution)
+        ideal_per_agent = total_phonemes / 3
+        
+        # Calculate how close each agent is to ideal
+        deviations = np.abs(self.phonemes - ideal_per_agent)
+        mean_deviation = np.mean(deviations)
+        
+        # Normalize deviation (max deviation is when one agent has all phonemes)
+        max_possible_deviation = (2 * total_phonemes) / 3
+        normalized_deviation = mean_deviation / max_possible_deviation if max_possible_deviation > 0 else 0.0
+        
+        # Convert to efficiency score (1.0 - deviation)
+        efficiency = 1.0 - normalized_deviation
+        
+        return float(np.clip(efficiency, 0.0, 1.0))
+    
+    def _randomize_agent(self):
+        """
+        Creates 3 distinct personalities and randomly assigns them 
+        to Agent 0, 1, and 2.
+        """
+        
+        # 1. Define the Three Archetypes (The "Souls")
+        # We still use ranges so they are distinct but slightly variable
+        
+        # Soul A: The Reserved One
+        reserved_soul = {
+            # "type": "RESERVED",  # Optional: Helpful for debugging/logging
+            "min_energy_to_speak": 0.20,
+            "energy_gain": 0.0018,
+            "energy_decay": 0.09,
+            "max_speaking_time": 6,
+            "phonemes_per_step": 4,
+        }
+
+        # Soul B: The Balanced One
+        balanced_soul = {
+            # "type": "BALANCED",
+            "min_energy_to_speak": 0.55,
+            "energy_gain": 0.010,
+            "energy_decay": 0.05,
+            "max_speaking_time": 8,
+            "phonemes_per_step": 5,
+        }
+
+        # Soul C: The Energetic One
+        energetic_soul = {
+            # "type": "ENERGETIC",
+            "min_energy_to_speak": 0.85,
+            "energy_gain": 0.030,
+            "energy_decay": 0.025,
+            "max_speaking_time": 12,
+            "phonemes_per_step": 6,
+        }
+
+        # 2. Put souls in a list
+        available_souls = [reserved_soul, balanced_soul, energetic_soul]
+
+        # 3. SHUFFLE THEM (The Switch)
+        # This is where Agent 0 might get the 'Energetic' soul
+        np_random = np.random.default_rng(None)
+        np_random.shuffle(available_souls)
+
+        # 4. Assign to bodies (Agent 0, 1, 2)
+        self.agent_params = {
+            0: available_souls[0],
+            1: available_souls[1],
+            2: available_souls[2]
+        }
+        logger.info(f"in function - {self.agent_params=}")
+        
+        # Optional: Log who is who for this episode
+        # logger.info(f"Episode Setup: Agent0={self.agent_params[0]['type']}, Agent1={self.agent_params[1]['type']}, Agent2={self.agent_params[2]['type']}")
+    def _randomize_params(self):
+        """
+        Creates 3 distinct personalities and randomly assigns them 
+        to Agent 0, 1, and 2.
+        """
+        
+        # 1. Define the Three Archetypes (The "Souls")
+        # We still use ranges so they are distinct but slightly variable
+        
+        # Soul A: The Reserved One
+        np_random = np.random.default_rng(None)
+        reserved_soul = {
+            "type": "RESERVED",  # Optional: Helpful for debugging/logging
+            "min_energy_to_speak": np_random.uniform(0.0, 1.0),
+            "energy_gain":         np_random.uniform(0.0, 0.5),
+            "energy_decay":        np_random.uniform(0.0, 0.5),
+            "max_speaking_time":   np_random.integers(3, 10),
+            "phonemes_per_step":   np_random.integers(3, 10),
+        }
+
+        # Soul B: The Balanced One
+        balanced_soul = {
+            "type": "BALANCED",
+            "min_energy_to_speak": np_random.uniform(0.0, 1.0),
+            "energy_gain":         np_random.uniform(0.0, 0.5),
+            "energy_decay":        np_random.uniform(0.0, 0.5),
+            "max_speaking_time":   np_random.integers(3, 10),
+            "phonemes_per_step":   np_random.integers(3, 10),
+        }
+
+        # Soul C: The Energetic One
+        energetic_soul = {
+            "type": "ENERGETIC",
+            "min_energy_to_speak": np_random.uniform(0.0, 1.0),
+            "energy_gain":         np_random.uniform(0.0, 0.5),
+            "energy_decay":        np_random.uniform(0.0, 0.5),
+            "max_speaking_time":   np_random.integers(3, 10),
+            "phonemes_per_step":   np_random.integers(3, 10),
+        }
+
+        # 2. Put souls in a list
+        available_souls = [reserved_soul, balanced_soul, energetic_soul]
+
+        # 3. SHUFFLE THEM (The Switch)
+        # This is where Agent 0 might get the 'Energetic' soul
+        np_random.shuffle(available_souls)
+
+        # 4. Assign to bodies (Agent 0, 1, 2)
+        self.agent_params = {
+            0: available_souls[0],
+            1: available_souls[1],
+            2: available_souls[2]
+        }
+        logger.info(f"{self.agent_params=}")
+        
+        # Optional: Log who is who for this episode
+        # logger.info(f"Episode Setup: Agent0={self.agent_params[0]['type']}, Agent1={self.agent_params[1]['type']}, Agent2={self.agent_params[2]['type']}")

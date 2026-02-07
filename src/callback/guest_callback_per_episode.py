@@ -319,8 +319,8 @@ class CallbackPerEpisode(BaseCallback):
         steps = range(len(episode_data['rewards']))
         
         # Create figure with improved grid layout
-        fig = plt.figure(figsize=(18, 15))
-        gs = fig.add_gridspec(4, 3, height_ratios=[1, 1, 1, 1])
+        fig = plt.figure(figsize=(20, 18))
+        gs = fig.add_gridspec(4, 3, height_ratios=[1, 1, 1, 2])
         
         # Row 1: Rewards
         ax1 = fig.add_subplot(gs[0, :])
@@ -334,7 +334,7 @@ class CallbackPerEpisode(BaseCallback):
         ax5 = fig.add_subplot(gs[2, 2])  # Encourage actions
         
         # Row 4: Energy
-        ax6 = fig.add_subplot(gs[3, :])
+        # ax6 = fig.add_subplot(gs[3, :])
         
         fig.suptitle(f'Episode {episode_idx + 1} - Step-by-Step Analysis', fontsize=16)
         
@@ -444,32 +444,107 @@ class CallbackPerEpisode(BaseCallback):
             ax5.set_yticks(range(int(max_val_encourage) + 1))
         
         # FIXED: Energy plot with proper array handling
-        energy_data = episode_data['energy']
+        # TODO: Remove if it work 
+        # energy_data = episode_data['energy']
+        # if energy_data:
+        #     try:
+        #         energy_array = np.array(energy_data)
+        #         if energy_array.ndim > 1 and energy_array.shape[1] > 0:
+        #             colors = ['blue', 'orange', 'green', 'red', 'purple', 'brown']
+        #             for i in range(min(energy_array.shape[1], len(colors))):
+        #                 ax6.plot(steps, energy_array[:, i], 
+        #                         label=f'Agent {i} Energy', 
+        #                         color=colors[i % len(colors)], alpha=0.8)
+        #         else:
+        #             # Handle 1D energy data
+        #             ax6.plot(steps, energy_array, 'b-', alpha=0.7, label='Energy')
+        #     except Exception as e:
+        #         logger.warning(f"Error plotting energy data: {e}")
+        #         ax6.text(0.5, 0.5, 'Energy data format error', 
+        #                 transform=ax6.transAxes, ha='center', va='center')
+        # else:
+        #     ax6.text(0.5, 0.5, 'No energy data available', 
+        #             transform=ax6.transAxes, ha='center', va='center')
+        
+        # ax6.set_xlabel('Step')
+        # ax6.set_ylabel('Energy')
+        # ax6.set_title('Energy Levels per Agent')
+        # ax6.legend()
+        # ax6.grid(True, alpha=0.3)
+
+                # --- Energy plots: split into individual graphs per agent on last row ---
+                # --- Energy plots: one on top of the other (per agent) ---
+        energy_data = episode_data.get("energy")
+
         if energy_data:
             try:
-                energy_array = np.array(energy_data)
-                if energy_array.ndim > 1 and energy_array.shape[1] > 0:
-                    colors = ['blue', 'orange', 'green', 'red', 'purple', 'brown']
-                    for i in range(min(energy_array.shape[1], len(colors))):
-                        ax6.plot(steps, energy_array[:, i], 
-                                label=f'Agent {i} Energy', 
-                                color=colors[i % len(colors)], alpha=0.8)
-                else:
-                    # Handle 1D energy data
-                    ax6.plot(steps, energy_array, 'b-', alpha=0.7, label='Energy')
+                energy_array = np.array(energy_data)  # shape: (steps, num_agents) or (steps,)
+
+                # Handle 1D energy as a single-agent case
+                if energy_array.ndim == 1:
+                    energy_array = energy_array[:, None]  # (steps,) -> (steps, 1)
+
+                num_agents = energy_array.shape[1]
+
+                # Subdivide the last row (row 3) into num_agents rows, 1 column
+                energy_gs = gs[3, :].subgridspec(num_agents, 1)
+
+                colors = ['blue', 'orange', 'green', 'red', 'purple', 'brown']
+
+                # Shared y-limits across all energy plots (nice for comparison)
+                max_energy = float(np.max(energy_array))
+                min_energy = float(np.min(energy_array))
+                y_margin = max(1e-3, (max_energy - min_energy) * 0.05)
+                y_min = min_energy - y_margin
+                y_max = max_energy + y_margin
+
+                energy_axes = []
+
+                for agent_idx in range(num_agents):
+                    # First axis normal, others share x-axis to align steps
+                    if agent_idx == 0:
+                        ax_energy = fig.add_subplot(energy_gs[agent_idx, 0])
+                    else:
+                        ax_energy = fig.add_subplot(
+                            energy_gs[agent_idx, 0],
+                            sharex=energy_axes[0]
+                        )
+
+                    energy_axes.append(ax_energy)
+
+                    ax_energy.plot(
+                        steps,
+                        energy_array[:, agent_idx],
+                        color=colors[agent_idx % len(colors)],
+                        alpha=0.9,
+                        label=f"Agent {agent_idx} Energy",
+                    )
+                    ax_energy.set_ylabel("Energy")
+                    ax_energy.set_title(f"Energy – Agent {agent_idx}")
+                    ax_energy.grid(True, alpha=0.3)
+                    ax_energy.set_ylim(y_min, y_max)
+                    ax_energy.legend()
+
+                # Only show x-label on the last energy plot
+                energy_axes[-1].set_xlabel("Step")
+
             except Exception as e:
                 logger.warning(f"Error plotting energy data: {e}")
-                ax6.text(0.5, 0.5, 'Energy data format error', 
-                        transform=ax6.transAxes, ha='center', va='center')
+                ax_energy_fallback = fig.add_subplot(gs[3, :])
+                ax_energy_fallback.text(
+                    0.5, 0.5, "Energy data format error",
+                    transform=ax_energy_fallback.transAxes,
+                    ha="center", va="center"
+                )
+                ax_energy_fallback.set_axis_off()
         else:
-            ax6.text(0.5, 0.5, 'No energy data available', 
-                    transform=ax6.transAxes, ha='center', va='center')
-        
-        ax6.set_xlabel('Step')
-        ax6.set_ylabel('Energy')
-        ax6.set_title('Energy Levels per Agent')
-        ax6.legend()
-        ax6.grid(True, alpha=0.3)
+            ax_energy_empty = fig.add_subplot(gs[3, :])
+            ax_energy_empty.text(
+                0.5, 0.5, "No energy data available",
+                transform=ax_energy_empty.transAxes,
+                ha="center", va="center"
+            )
+            ax_energy_empty.set_axis_off()
         
         plt.tight_layout(rect=[0, 0, 1, 0.96])  # Make room for the title
         
@@ -489,7 +564,7 @@ class CallbackPerEpisode(BaseCallback):
             # Episode rewards plot
             if self.avg_episode_rewards:
                 logger.info(f"{self.avg_episode_rewards=}")
-                plt.figure(figsize=(12, 4))
+                plt.figure(figsize=(18, 6))
                 
                 plt.subplot(1, 2, 1)
                 plt.plot(self.avg_episode_rewards)
@@ -526,7 +601,7 @@ class CallbackPerEpisode(BaseCallback):
             
             # Balance analysis
             if self.episode_phonemes:
-                plt.figure(figsize=(10, 6))
+                plt.figure(figsize=(18,8))
                 
                 phonemes_array = np.array(self.episode_phonemes)
                 
@@ -570,6 +645,170 @@ class CallbackPerEpisode(BaseCallback):
                 
         except Exception as e:
             logger.error(f"Error creating summary plots: {e}")
+    
+    @logger.catch
+    def plot_cumulative_actions_single_figure(
+        self,
+        results_dir: str,
+        filename: str = "cumulative_actions_all.png",
+    ) -> None:
+        """
+        Plot cumulative actions across ALL episodes in ONE figure split into 3 rows:
+            1. Wait
+            2. Stare at
+            3. Encourage
+        """
+        os.makedirs(results_dir, exist_ok=True)
+
+        if not self.episodes_step_data:
+            logger.warning("No episodes_step_data available – nothing to plot.")
+            return
+
+        # --- Flatten all actions across all episodes ---
+        all_actions = []
+        for ep in self.episodes_step_data:
+            if "actions" in ep:
+                all_actions.extend([a for a in ep["actions"] if isinstance(a, (int, np.integer)) and a >= 0])
+
+        if not all_actions:
+            logger.warning("No valid actions found – nothing to plot.")
+            return
+
+        all_actions = np.array(all_actions)
+        steps = np.arange(len(all_actions))
+
+        # --- Create figure with 3 stacked plots ---
+        fig, axes = plt.subplots(3, 1, figsize=(18, 12), sharex=True)
+        fig.suptitle("Cumulative Action Usage Across Training", fontsize=18)
+
+        # ========== 1) WAIT ==========
+        wait_mask = (all_actions == 0).astype(int)
+        wait_cum = np.cumsum(wait_mask)
+        axes[0].plot(steps, wait_cum, linewidth=2, color="#f47906", label="Wait (0)")
+        axes[0].set_ylabel("Count"); axes[0].set_title("Wait")
+        axes[0].grid(True, alpha=0.3); axes[0].legend()
+
+        # ========== 2) STARE ==========
+        stare_colors = ["blue", "orange", "green"]
+        stare_labels = ["Stare at 0 (1)", "Stare at 1 (2)", "Stare at 2 (3)"]
+        for action_id, color, label in zip([1, 2, 3], stare_colors, stare_labels):
+            mask = (all_actions == action_id).astype(int)
+            axes[1].plot(steps, np.cumsum(mask), linewidth=2, color=color, label=label)
+        axes[1].set_ylabel("Count"); axes[1].set_title("Stare")
+        axes[1].grid(True, alpha=0.3); axes[1].legend()
+
+        # ========== 3) ENCOURAGE ==========
+        encour_colors = ["blue", "orange", "green"]
+        encour_labels = ["Encourage 0 (4)", "Encourage 1 (5)", "Encourage 2 (6)"]
+        for action_id, color, label in zip([4, 5, 6], encour_colors, encour_labels):
+            mask = (all_actions == action_id).astype(int)
+            axes[2].plot(steps, np.cumsum(mask), linewidth=2, color=color, label=label)
+        axes[2].set_ylabel("Count"); axes[2].set_title("Encourage")
+        axes[2].set_xlabel("Global Step Across Training")
+        axes[2].grid(True, alpha=0.3); axes[2].legend()
+
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        out_path = os.path.join(results_dir, filename)
+
+        try:
+            plt.savefig(out_path, dpi=300, bbox_inches="tight")
+            logger.info(f"Cumulative action (single figure) plot saved to {out_path}")
+        except Exception as e:
+            logger.error(f"Error saving cumulative action figure: {e}")
+        finally:
+            plt.close()
+
+    @logger.catch
+    def plot_last_action_values_per_episode(
+        self,
+        results_dir: str,
+        filename: str = "episode_last_action_values.png",
+    ) -> None:
+        """
+        Plot only the LAST cumulative action count from each episode.
+        Each episode contributes one number per action:
+            - Final count of Wait
+            - Final counts of Stare at 0/1/2
+            - Final counts of Encourage 0/1/2
+
+        Figure layout:
+            Row 1 -> Wait
+            Row 2 -> Stare
+            Row 3 -> Encourage
+        """
+        os.makedirs(results_dir, exist_ok=True)
+
+        if not self.episodes_step_data:
+            logger.warning("No episodes_step_data available – nothing to plot.")
+            return
+
+        # Storage
+        wait_vals = []
+        stare_vals = {1: [], 2: [], 3: []}
+        encourage_vals = {4: [], 5: [], 6: []}
+
+        # --- collect the last cumulative value from every episode ---
+        for ep in self.episodes_step_data:
+            actions = ep.get("actions", [])
+            if not actions:
+                continue
+
+            actions = np.array(actions)
+
+            # Wait final
+            wait_vals.append(np.sum(actions == 0))
+
+            # Stare finals
+            stare_vals[1].append(np.sum(actions == 1))
+            stare_vals[2].append(np.sum(actions == 2))
+            stare_vals[3].append(np.sum(actions == 3))
+
+            # Encourage finals
+            encourage_vals[4].append(np.sum(actions == 4))
+            encourage_vals[5].append(np.sum(actions == 5))
+            encourage_vals[6].append(np.sum(actions == 6))
+
+        episodes = np.arange(len(wait_vals)) + 1  # 1-based indexing on X-axis
+
+        fig, axes = plt.subplots(3, 1, figsize=(18, 12), sharex=True)
+        fig.suptitle("Total Action Counts per Episode (final value only)", fontsize=18)
+
+        # ========== 1) WAIT ==========
+        axes[0].plot(episodes, wait_vals, linewidth=2, color="#f47906", label="Wait (0)")
+        axes[0].set_ylabel("Count"); axes[0].set_title("Wait")
+        axes[0].grid(True, alpha=0.3); axes[0].legend()
+
+        # ========== 2) STARE ==========
+        colors = ["blue", "orange", "green"]
+        labels = ["Stare at 0 (1)", "Stare at 1 (2)", "Stare at 2 (3)"]
+        for action_id, color, label in zip([1, 2, 3], colors, labels):
+            axes[2 - 2 + 1]  # no avoid confusion
+        for (action_id, color, label) in zip([1, 2, 3], colors, labels):
+            axes[1].plot(episodes, stare_vals[action_id], color=color, linewidth=2, label=label)
+        axes[1].set_ylabel("Count"); axes[1].set_title("Stare")
+        axes[1].grid(True, alpha=0.3); axes[1].legend()
+
+        # ========== 3) ENCOURAGE ==========
+        colors = ["blue", "orange", "green"]
+        labels = ["Encourage 0 (4)", "Encourage 1 (5)", "Encourage 2 (6)"]
+        for (action_id, color, label) in zip([4, 5, 6], colors, labels):
+            axes[2].plot(episodes, encourage_vals[action_id], color=color, linewidth=2, label=label)
+        axes[2].set_ylabel("Count"); axes[2].set_title("Encourage")
+        axes[2].set_xlabel("Episode")
+        axes[2].grid(True, alpha=0.3); axes[2].legend()
+
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        out_path = os.path.join(results_dir, filename)
+
+        try:
+            plt.savefig(out_path, dpi=300, bbox_inches="tight")
+            logger.info(f"Episode last-action plot saved to {out_path}")
+        except Exception as e:
+            logger.error(f"Error saving last-action plot: {e}")
+        finally:
+            plt.close()
+
+
     @logger.catch
     def save_data(self, filepath: str) -> None:
         """Save callback data to file for later analysis."""
@@ -607,3 +846,4 @@ class CallbackPerEpisode(BaseCallback):
             logger.info(f"Callback data loaded from {filepath}")
         except Exception as e:
             logger.error(f"Error loading callback data: {e}")
+        return data

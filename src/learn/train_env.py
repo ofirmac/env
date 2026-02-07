@@ -1,6 +1,7 @@
 import os
 import sys
 import numpy as np
+import json
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 from datetime import datetime
@@ -13,7 +14,8 @@ from src.callback.guest_callback import TensorBoardMetricsCallback
 from src.callback.guest_callback_per_episode import CallbackPerEpisode
 
 MAX_STEPS = 500
-MAX_EPISODE = 10_000
+MAX_EPISODE = 5000
+# MAX_EPISODE = 2
 TOTAL_TIMESTEPS = MAX_STEPS*MAX_EPISODE
 
 #-------    Main training function -------
@@ -22,14 +24,14 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = os.path.join(os.ge
     os.makedirs(results_dir, exist_ok=True)
     
     # Create environment
-    env = GuestEnv(max_steps=MAX_STEPS, reward_shaping=False)
+    env = GuestEnv(max_steps=MAX_STEPS, reward_shaping=False, env_effect=False, efficiency=False, randomize_agent=False ,seed=42)
 
 
     env.agent_params[0].update({  # quiet analyst
     "min_energy_to_speak": 0.20,
-    "energy_gain": 0.002,
-    "energy_decay": 0.08,
-    "max_speaking_time": 6,
+    "energy_gain": 0.0018,
+    "energy_decay": 0.09,
+    "max_speaking_time": 500,
     "phonemes_per_step": 4,
     })
 
@@ -37,17 +39,48 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = os.path.join(os.ge
         "min_energy_to_speak": 0.55,
         "energy_gain": 0.010,
         "energy_decay": 0.05,
-        "max_speaking_time": 8,
+        "max_speaking_time": 500,
         "phonemes_per_step": 5,
     })
 
     env.agent_params[2].update({  # energetic storyteller
         "min_energy_to_speak": 0.85,
-        "energy_gain": 0.028,
-        "energy_decay": 0.03,
-        "max_speaking_time": 12,
+        "energy_gain": 0.030,
+        "energy_decay": 0.025,
+        "max_speaking_time": 500,
         "phonemes_per_step": 6,
     })
+
+    # env.agent_params[0].update({  # quiet analyst
+    # "min_energy_to_speak": 0.20,
+    # "energy_gain": 0.002,
+    # "energy_decay": 0.08,
+    # "max_speaking_time": 6,
+    # "phonemes_per_step": 4,
+    # })
+
+    # env.agent_params[1].update({  # balanced mediator
+    #     "min_energy_to_speak": 0.55,
+    #     "energy_gain": 0.010,
+    #     "energy_decay": 0.05,
+    #     "max_speaking_time": 8,
+    #     "phonemes_per_step": 5,
+    # })
+
+    # env.agent_params[2].update({  # energetic storyteller
+    #     "min_energy_to_speak": 0.85,
+    #     "energy_gain": 0.028,
+    #     "energy_decay": 0.03,
+    #     "max_speaking_time": 12,
+    #     "phonemes_per_step": 6,
+    # })
+    env_config = {
+        "reward_shaping": False,
+        "env_effect": False,
+        "efficiency": False,
+        "randomize_agent": False,
+        "agent_params": env.agent_params,  # list of dicts
+    }
     print(env.agent_params[2])
     env = DummyVecEnv([lambda: env])
     
@@ -85,9 +118,43 @@ def train(total_timesteps=TOTAL_TIMESTEPS, results_dir: str = os.path.join(os.ge
         tensorboard_log=tensorboard_log,
         seed=42,
         verbose=1,
+        device='cpu'
     )
 
+    ppo_config = {
+        "policy": "MlpPolicy",
+        "learning_rate": 5e-4,
+        "n_steps": MAX_STEPS,
+        "batch_size": MAX_STEPS,
+        "n_epochs": 5,
+        "gamma": 0.995,
+        "gae_lambda": 0.95,
+        "clip_range": 0.25,
+        "ent_coef": 0.01,
+        "vf_coef": 0.5,
+        "clip_range_vf": 0.2,
+        "max_grad_norm": 0.5,
+        "tensorboard_log": tensorboard_log,
+        "seed": 42,
+        "verbose": 1,
+    }
+
+    metadata = {
+        "MAX_STEPS": MAX_STEPS,
+        "MAX_EPISODE": MAX_EPISODE,
+        "TOTAL_TIMESTEPS": total_timesteps,
+        "env_config": env_config,
+        "ppo_config": ppo_config,
+        "timestamp": datetime.now().isoformat(),
+    }
     
+    metadata_path = os.path.join(results_dir, "run_metadata.json")
+    try:
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+        print(f"[INFO] Saved run metadata to: {metadata_path}")
+    except Exception as e:
+        print(f"[WARN] Failed to save metadata JSON: {e}")
 
     callback = CallbackPerEpisode(
         log_dir=os.path.join(results_dir, "detailed_logs")
@@ -133,5 +200,7 @@ if __name__ == "__main__":
     date_str = datetime.now().strftime("%Y_%m_%d")
     print(f"{date_str}")
     # Use current working directory for results
-    results_dir = os.path.join(os.getcwd(), "src", "test_result", f"train_result_{date_str}_{MAX_STEPS=}_{MAX_EPISODE=}_2")
+    results_dir_name = f"train_result_{date_str}_{MAX_STEPS=}_{MAX_EPISODE=}_500_per_step_moshe"
+    os.environ['RESULTS_DIR'] = results_dir_name
+    results_dir = os.path.join(os.getcwd(), "src", "test_result", results_dir_name)
     train(results_dir=results_dir)
