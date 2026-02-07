@@ -5,3 +5,5 @@
 *.pkl
 *.zip
 *.tfevents.*
+src/test_result/result/**
+**.pyc
