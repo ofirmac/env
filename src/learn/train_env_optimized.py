@@ -10,7 +10,7 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from src.env.env_gym import GuestEnv
-from src.callback.guest_callback_per_episode import CallbackPerEpisode
+from src.callback.guest_callback_per_episode_multi_env import CallbackPerEpisode
 
 MAX_STEPS = 500
 TOTAL_TIMESTEPS = MAX_STEPS*100

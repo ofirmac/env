@@ -4,7 +4,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv
 from env.env_gym import GuestEnv
 from callback.guest_callback import TensorBoardMetricsCallback
-from callback.guest_callback_per_episode import CallbackPerEpisode
+from src.callback.guest_callback_per_episode_multi_env import CallbackPerEpisode
 
 
 MAX_STEPS = 100
