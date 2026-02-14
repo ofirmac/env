@@ -350,6 +350,9 @@ class GuestEnv(gym.Env):
             phoneme_range = (np.max(self.phonemes) - np.min(self.phonemes)) / (
                 total_phonemes / 3
             )
+            # Scale to [0, 1]: max std = sqrt(6) ≈ 1.414, max range = 3.0
+            phoneme_std = phoneme_std / np.sqrt(6)
+            phoneme_range = phoneme_range / 3.0
         else:
             phoneme_std = 0.0
             phoneme_range = 0.0
@@ -359,7 +362,7 @@ class GuestEnv(gym.Env):
         progress = self.step_counter / self.max_steps
         obs.append(progress)  # [1 value: 0-1]
 
-        return np.asarray(obs, dtype=np.float32)  # Total: 18 features
+        return np.asarray(obs, dtype=np.float32)
 
     def _gini(self) -> float:
         total = np.sum(self.phonemes)

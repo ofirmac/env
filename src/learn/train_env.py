@@ -11,7 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from src.env.env_gym import GuestEnv
 from src.callback.guest_callback import TensorBoardMetricsCallback
-from src.callback.guest_callback_per_episode import CallbackPerEpisode
+from src.callback.guest_callback_per_episode_multi_env import CallbackPerEpisode
 
 MAX_STEPS = 500
 MAX_EPISODE = 5000

@@ -26,126 +26,143 @@ class CallbackPerEpisode(BaseCallback):
         max_stored_episodes: Maximum episodes to store for plotting (memory limit)
     """
     @logger.catch
-    def __init__(self, log_dir: str = "./tensorboard_logs/", max_stored_episodes: int = 10_000) -> None:
+    def __init__(
+        self,
+        log_dir: str = "./tensorboard_logs/",
+        max_stored_episodes: int = 10_000,
+        num_envs_to_track: int = 1
+    ) -> None:
         super().__init__()
         self.log_dir = log_dir
         self.writer = None
         self.max_stored_episodes = max_stored_episodes
-        
+        self.num_envs_to_track = num_envs_to_track  # How many parallel envs to track for pkl
+
         # Episode-level tracking
         self.episode_rewards = []
         self.avg_episode_rewards = []
         self.episode_phonemes = []
         self.episode_gini = []
         self.episode_actions = []
-        
-        # Current episode tracking
-        self.current_episode_reward = 0
-        self.current_episode_steps = 0
+
+        # Current episode tracking (per environment)
+        self.current_episode_reward = {}  # {env_id: reward}
+        self.current_episode_steps = {}   # {env_id: steps}
         self.episode_count = 0
-        
+
         # Episode-wise step data (for detailed episode plots)
         self.episodes_step_data = []
-        self.current_episode_data = {
-            'rewards': [],           # PPO rewards (with shaping)
-            'env_rewards': [],       # Base environment rewards
-            'phonemes': [],
-            'gini': [],
-            'actions': [],
-            'cumulative_reward': [],
-            'energy': []
-        }
+        self.current_episode_data = {}  # {env_id: episode_data_dict}
+
+        # Initialize tracking for each environment
+        for env_id in range(self.num_envs_to_track):
+            self.current_episode_reward[env_id] = 0
+            self.current_episode_steps[env_id] = 0
+            self.current_episode_data[env_id] = {
+                'rewards': [],           # PPO rewards (with shaping)
+                'env_rewards': [],       # Base environment rewards
+                'phonemes': [],
+                'gini': [],
+                'actions': [],
+                'cumulative_reward': [],
+                'energy': []
+            }
     @logger.catch    
     def _on_training_start(self) -> None:
         """Initialize TensorBoard writer."""
         os.makedirs(self.log_dir, exist_ok=True)
         self.writer = SummaryWriter(self.log_dir)
-    @logger.catch    
+    @logger.catch
     def _on_step(self) -> bool:
         """Called after each environment step."""
         # Get info from the environment
         infos = self.locals.get("infos", [{}])
         rewards = self.locals.get("rewards", [0])
-        
-        if len(infos) > 0 and len(rewards) > 0:
-            info = infos[0]
-            logger.debug(f"{rewards=}")
-            reward = rewards[0]
-            logger.debug(f"{reward=}")
-            
-            # Track current episode
-            self.current_episode_reward += reward
-            self.current_episode_steps += 1
-            
+        dones = self.locals.get("dones", [False])
+
+        # Track only the specified number of environments
+        num_envs = min(len(infos), self.num_envs_to_track)
+
+        for env_id in range(num_envs):
+            if env_id >= len(infos) or env_id >= len(rewards):
+                continue
+
+            info = infos[env_id]
+            reward = rewards[env_id]
+            done = dones[env_id] if env_id < len(dones) else False
+
+            logger.debug(f"Env {env_id}: {reward=}")
+
+            # Track current episode for this env
+            self.current_episode_reward[env_id] += reward
+            self.current_episode_steps[env_id] += 1
+
             # Get metrics from info with safe extraction
             phonemes = self._safe_get_metric(info, "phoneme", [0, 0, 0])
             gini_history = self._safe_get_metric(info, "gini_history", [])
-            current_gini = self._safe_get_metric(info, "current_gini", 0)  # FIXED: Use direct gini value
+            current_gini = self._safe_get_metric(info, "current_gini", 0)
             action_number = self._safe_get_metric(info, "action_number", -1)
-            env_reward = self._safe_get_metric(info, "env_reward", 0)  # Base reward without shaping
-            total_reward = self._safe_get_metric(info, "total_reward", reward)  # FIXED: Total reward with shaping
+            env_reward = self._safe_get_metric(info, "env_reward", 0)
+            total_reward = self._safe_get_metric(info, "total_reward", reward)
             energy = self._safe_get_metric(info, "energy", [0, 0, 0])
-            
-            # Store step data for current episode
-            # FIXED: Store the actual reward used by PPO (includes shaping)
-            self.current_episode_data['rewards'].append(reward)  # PPO reward (with shaping)
-            self.current_episode_data['env_rewards'].append(env_reward)  # Base environment reward
-            self.current_episode_data['phonemes'].append(phonemes.copy() if isinstance(phonemes, list) else list(phonemes))
-            self.current_episode_data['gini'].append(current_gini)
-            self.current_episode_data['actions'].append(action_number)
-            self.current_episode_data['cumulative_reward'].append(self.current_episode_reward)
-            self.current_episode_data['energy'].append(energy.copy() if isinstance(energy, list) else list(energy))
-            
-            # Log step-level metrics
-            global_step = self.num_timesteps
-            
-            # FIXED: Log both PPO reward and environment reward for comparison
-            self.writer.add_scalar('Step/PPO_Reward', reward, global_step)  # Total reward used by PPO
-            self.writer.add_scalar('Step/Env_Reward', env_reward, global_step)  # Base environment reward
-            if total_reward != reward:
-                self.writer.add_scalar('Step/Total_Reward', total_reward, global_step)  # In case there's a difference
-            
-            # Dynamic agent handling for phonemes
-            num_agents = len(phonemes) if isinstance(phonemes, (list, np.ndarray)) else 3
-            for i in range(num_agents):
-                if i < len(phonemes):
-                    self.writer.add_scalar(f'Step_Phonemes/Agent_{i}_Phonemes', phonemes[i], global_step)
-            
-            # Dynamic TensorBoard logging for all agents
-            if num_agents > 0 and len(phonemes) >= num_agents:
-                agent_phoneme_dict = {f"Agent_{i}": phonemes[i] for i in range(num_agents)}
-                self.writer.add_scalars('Step_Phonemes/All_Agent_Phonemes', agent_phoneme_dict, global_step)
 
-            # Energy logging with dynamic agent handling
-            num_energy_agents = len(energy) if isinstance(energy, (list, np.ndarray)) else 3
-            for i in range(num_energy_agents):
-                if i < len(energy):
-                    self.writer.add_scalar(f'Step_Energy/Agent_{i}_Energy', energy[i], global_step)
-            
-            if num_energy_agents > 0 and len(energy) >= num_energy_agents:
-                agent_energy_dict = {f"Agent_{i}": energy[i] for i in range(num_energy_agents)}
-                self.writer.add_scalars('Step_Energy/All_Agent_Energy', agent_energy_dict, global_step)
-            
-            # Gini coefficient
-            self.writer.add_scalar('Step/Gini_Coefficient', current_gini, global_step)
-            
-            # Actions
-            if action_number >= 0:
-                self.writer.add_scalar('Step/Action', action_number, global_step)
-            
-            # Phoneme distribution
-            total_phonemes = sum(phonemes) if isinstance(phonemes, (list, np.ndarray)) else 0
-            if total_phonemes > 0:
+            # Store step data for current episode of this env
+            self.current_episode_data[env_id]['rewards'].append(reward)
+            self.current_episode_data[env_id]['env_rewards'].append(env_reward)
+            self.current_episode_data[env_id]['phonemes'].append(phonemes.copy() if isinstance(phonemes, list) else list(phonemes))
+            self.current_episode_data[env_id]['gini'].append(current_gini)
+            self.current_episode_data[env_id]['actions'].append(action_number)
+            self.current_episode_data[env_id]['cumulative_reward'].append(self.current_episode_reward[env_id])
+            self.current_episode_data[env_id]['energy'].append(energy.copy() if isinstance(energy, list) else list(energy))
+
+            # Log step-level metrics (only for env 0 to avoid cluttering TensorBoard)
+            if env_id == 0:
+                global_step = self.num_timesteps
+
+                self.writer.add_scalar('Step/PPO_Reward', reward, global_step)
+                self.writer.add_scalar('Step/Env_Reward', env_reward, global_step)
+                if total_reward != reward:
+                    self.writer.add_scalar('Step/Total_Reward', total_reward, global_step)
+
+                # Dynamic agent handling for phonemes
+                num_agents = len(phonemes) if isinstance(phonemes, (list, np.ndarray)) else 3
                 for i in range(num_agents):
                     if i < len(phonemes):
-                        percentage = (phonemes[i] / total_phonemes) * 100
-                        self.writer.add_scalar(f'Step_Percentage/Agent_{i}_Percentage', percentage, global_step)
-            
-            # Check if episode ended
-            dones = self.locals.get("dones", [False])
-            if dones[0]:  # Episode ended
-                self._log_episode_metrics(info)
-                
+                        self.writer.add_scalar(f'Step_Phonemes/Agent_{i}_Phonemes', phonemes[i], global_step)
+
+                if num_agents > 0 and len(phonemes) >= num_agents:
+                    agent_phoneme_dict = {f"Agent_{i}": phonemes[i] for i in range(num_agents)}
+                    self.writer.add_scalars('Step_Phonemes/All_Agent_Phonemes', agent_phoneme_dict, global_step)
+
+                # Energy logging
+                num_energy_agents = len(energy) if isinstance(energy, (list, np.ndarray)) else 3
+                for i in range(num_energy_agents):
+                    if i < len(energy):
+                        self.writer.add_scalar(f'Step_Energy/Agent_{i}_Energy', energy[i], global_step)
+
+                if num_energy_agents > 0 and len(energy) >= num_energy_agents:
+                    agent_energy_dict = {f"Agent_{i}": energy[i] for i in range(num_energy_agents)}
+                    self.writer.add_scalars('Step_Energy/All_Agent_Energy', agent_energy_dict, global_step)
+
+                # Gini coefficient
+                self.writer.add_scalar('Step/Gini_Coefficient', current_gini, global_step)
+
+                # Actions
+                if action_number >= 0:
+                    self.writer.add_scalar('Step/Action', action_number, global_step)
+
+                # Phoneme distribution
+                total_phonemes = sum(phonemes) if isinstance(phonemes, (list, np.ndarray)) else 0
+                if total_phonemes > 0:
+                    for i in range(num_agents):
+                        if i < len(phonemes):
+                            percentage = (phonemes[i] / total_phonemes) * 100
+                            self.writer.add_scalar(f'Step_Percentage/Agent_{i}_Percentage', percentage, global_step)
+
+            # Check if episode ended for this env
+            if done:
+                self._log_episode_metrics(info, env_id)
+
         return True
     @logger.catch
     def _safe_get_metric(self, info: Dict[str, Any], key: str, default_value: Any) -> Any:
@@ -166,39 +183,40 @@ class CallbackPerEpisode(BaseCallback):
             return len(self.episode_phonemes[0])
         return 3  # Default fallback
     @logger.catch
-    def _log_episode_metrics(self, final_info: Dict[str, Any]) -> None:
-        """Log episode-level metrics."""
+    def _log_episode_metrics(self, final_info: Dict[str, Any], env_id: int = 0) -> None:
+        """Log episode-level metrics for a specific environment."""
         self.episode_count += 1
-        
+
         # Memory management: limit stored episodes
         if len(self.episodes_step_data) >= self.max_stored_episodes:
             self.episodes_step_data.pop(0)  # Remove oldest
-        
+
         # Store episode data for detailed plotting
-        self.episodes_step_data.append(self.current_episode_data.copy())
-        
+        self.episodes_step_data.append(self.current_episode_data[env_id].copy())
+
         # Episode reward
-        self.episode_rewards.append(self.current_episode_reward)
-        self.writer.add_scalar('Episode/Total_Reward', self.current_episode_reward, self.episode_count)
-        
+        episode_reward = self.current_episode_reward[env_id]
+        episode_steps = self.current_episode_steps[env_id]
+
+        self.episode_rewards.append(episode_reward)
+        self.writer.add_scalar('Episode/Total_Reward', episode_reward, self.episode_count)
+
         # Avg reward
-        avg_reward = self.current_episode_reward / self.current_episode_steps
-        self.avg_episode_rewards.append(avg_reward)
-        self.writer.add_scalar('Episode/Avg_Total_Reward', avg_reward, self.episode_count)
-        
-        # Avoid division by zero
-        if self.current_episode_steps > 0:
-            self.writer.add_scalar('Episode/Average_Reward', self.current_episode_reward / self.current_episode_steps, self.episode_count)
-        
+        if episode_steps > 0:
+            avg_reward = episode_reward / episode_steps
+            self.avg_episode_rewards.append(avg_reward)
+            self.writer.add_scalar('Episode/Avg_Total_Reward', avg_reward, self.episode_count)
+            self.writer.add_scalar('Episode/Average_Reward', avg_reward, self.episode_count)
+
         # Final phoneme counts
         final_phonemes = self._safe_get_metric(final_info, "phoneme", [0, 0, 0])
         self.episode_phonemes.append(final_phonemes.copy() if isinstance(final_phonemes, list) else list(final_phonemes))
-        
+
         num_agents = len(final_phonemes) if isinstance(final_phonemes, (list, np.ndarray)) else 3
         for i in range(num_agents):
             if i < len(final_phonemes):
                 self.writer.add_scalar(f'Episode/Agent_{i}_Final_Phonemes', final_phonemes[i], self.episode_count)
-        
+
         # Episode balance metrics
         total_phonemes = sum(final_phonemes) if isinstance(final_phonemes, (list, np.ndarray)) else 0
         if total_phonemes > 0:
@@ -207,40 +225,40 @@ class CallbackPerEpisode(BaseCallback):
             for i, percentage in enumerate(percentages):
                 if i < num_agents:
                     self.writer.add_scalar(f'Episode/Agent_{i}_Final_Percentage', percentage, self.episode_count)
-            
+
             # Balance metrics
             std_dev = np.std(final_phonemes)
             self.writer.add_scalar('Episode/Phoneme_StdDev', std_dev, self.episode_count)
-            
+
             # Gini coefficient
             gini_history = self._safe_get_metric(final_info, "gini_history", [])
             if gini_history:
                 final_gini = gini_history[-1]
                 self.episode_gini.append(final_gini)
                 self.writer.add_scalar('Episode/Final_Gini', final_gini, self.episode_count)
-        
+
         # Action statistics
         action_stats = self._safe_get_metric(final_info, "actions_stats", [])
         if len(action_stats) > 0:
             for i, action_count in enumerate(action_stats):
                 self.writer.add_scalar(f'Episode/Action_{i}_Count', action_count, self.episode_count)
-        
+
         # Episode length
-        self.writer.add_scalar('Episode/Length', self.current_episode_steps, self.episode_count)
-        
-        # Reset for next episode
-        self.current_episode_reward = 0
-        self.current_episode_steps = 0
-        self.current_episode_data = {
-            'rewards': [],           # PPO rewards (with shaping)
-            'env_rewards': [],       # FIXED: Base environment rewards
+        self.writer.add_scalar('Episode/Length', episode_steps, self.episode_count)
+
+        # Reset for next episode for this env
+        self.current_episode_reward[env_id] = 0
+        self.current_episode_steps[env_id] = 0
+        self.current_episode_data[env_id] = {
+            'rewards': [],
+            'env_rewards': [],
             'phonemes': [],
             'gini': [],
             'actions': [],
             'cumulative_reward': [],
             'energy': []
         }
-        
+
         # Log episode summary every 10 episodes
         if self.episode_count % 10 == 0:
             self._log_summary_statistics()
